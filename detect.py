@@ -196,8 +196,34 @@ def yolo_verdict(box, detections):
     return "unknown"
 
 
+def below_lidar(ranges, bearing, visual=None, span=None):
+    """그 방향의 빨강이 라이다 평면 아래인지.
+
+    라이다가 시각 거리와 거의 같은 곳에서 맞으면 키가 있는 물체다.
+    맞지 않거나 훨씬 먼 벽만 맞으면 평면 아래의 빨강으로 본다.
+    """
+    if ranges is None:
+        return False
+    hit = range_at(ranges, bearing, span)
+    if hit is None:
+        return True
+    if visual is None:
+        return hit > config.LEAD_STEP_DISTANCE
+    return hit > visual + config.LEAD_LIDAR_GAP
+
+
+def _note_low_red(lead_list, pose, bearing, ranges, visual=None, span=None):
+    """평면 아래의 빨강만 단서로 남긴다. 키가 있으면 그 방향은 더 쫓지 않는다."""
+    if lead_list is None:
+        return
+    if below_lidar(ranges, bearing, visual, span):
+        lead_list.add(pose, bearing)
+    else:
+        lead_list.silence_bearing(pose, bearing)
+
+
 def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=None,
-                 low_list=None):
+                 low_list=None, ranges=None):
     """카메라만으로 목표물 위치를 낸다 (DETECT_RANGING == "camera").
 
     classify 를 주면 모양 검사를 통과한 덩어리에 한해 YOLO 에 묻는다 (한 장에 한 번).
@@ -212,9 +238,8 @@ def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=Non
     for box in blob_boxes(image_bgr):
         bearing = float(np.interp(box["cx"], np.arange(len(bearings)), bearings))
         if box["edge"]:
-            # 잘려서 크기를 모른다 — 방위만 남기고 가까이 가서 다시 본다
-            if lead_list is not None:
-                lead_list.add(pose, bearing)
+            # 잘린 덩어리는 거리도 모양도 모른다. 라이다가 비어 있을 때만 다가간다.
+            _note_low_red(lead_list, pose, bearing, ranges)
             rejected += 1
             continue
         if low_list is not None:
@@ -224,23 +249,28 @@ def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=Non
             if spot is not None:
                 low_list.add(*spot)
         if box["h"] > config.DETECT_MAX_ASPECT * box["w"]:
-            rejected += 1                    # 세로로 길다 (소화기 등)
+            # 세로로 길다. 사과가 아니라 소화기 쪽이니 그 방향은 쫓지 않는다.
+            if lead_list is not None:
+                lead_list.silence_bearing(pose, bearing)
+            rejected += 1
             continue
         if box["h"] < config.DETECT_MIN_ASPECT * box["w"]:
-            rejected += 1                    # 납작하다 (누운 캔 등)
+            _note_low_red(lead_list, pose, bearing, ranges)
+            rejected += 1
             continue
         measured = camera_range(box, width, height, fov)
         if measured is None:
-            rejected += 1                    # 바닥에 안 놓였다 (선반 위 등)
+            _note_low_red(lead_list, pose, bearing, ranges)
+            rejected += 1
             continue
         d_size, d_ground = measured
         if abs(d_size - d_ground) > config.DETECT_RANGE_AGREEMENT * d_ground:
-            rejected += 1                    # 사과 크기가 아니다 (소화기 등)
+            _note_low_red(lead_list, pose, bearing, ranges, visual=min(d_size, d_ground))
+            rejected += 1
             continue
         distance = (d_size + d_ground) / 2.0
         if distance > config.DETECT_MAX_RANGE:
-            if lead_list is not None:
-                lead_list.add(pose, bearing)
+            _note_low_red(lead_list, pose, bearing, ranges, visual=distance)
             rejected += 1
             continue
         if classify is not None:
@@ -249,11 +279,13 @@ def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=Non
             verdict = yolo_verdict(box, detections)
             YOLO_COUNT[verdict] = YOLO_COUNT.get(verdict, 0) + 1
             if verdict == "reject":
-                rejected += 1                # 병·컵 (캔)
+                # 병·컵·소화전. 그 방향은 다시 고르지 않는다.
+                if lead_list is not None:
+                    lead_list.silence_bearing(pose, bearing)
+                rejected += 1
                 continue
             if verdict == "unknown":
-                if lead_list is not None:
-                    lead_list.add(pose, bearing)   # 가까이 가서 다시 본다
+                _note_low_red(lead_list, pose, bearing, ranges, visual=distance)
                 rejected += 1
                 continue
         x = cam_x + distance * math.cos(theta + bearing)
@@ -472,19 +504,47 @@ class LeadList:
                 lead["sightings"] += 1
                 lead["x"], lead["y"], lead["ray"] = x, y, ray
                 return lead
-        fresh = {"x": x, "y": y, "ray": ray, "sightings": 1, "tries": 0}
+        inherited = 0
+        for lead in self.leads:
+            if abs(common.wrap_angle(ray - lead["ray"])) <= math.radians(
+                    config.LEAD_MERGE_DEGREES):
+                inherited = max(inherited, lead["tries"])
+        fresh = {"x": x, "y": y, "ray": ray, "sightings": 1, "tries": inherited}
         self.leads.append(fresh)
         return fresh
 
-    def best(self, minimum=None):
-        """쫓을 만한 단서 — 여러 번 본 것부터. 없으면 None."""
+    def silence_bearing(self, pose, bearing):
+        """그 방향은 키가 있는 빨강이다. 다시 사과로 쫓지 않는다."""
+        x, y, theta = pose
+        ray = common.wrap_angle(theta + bearing)
+        matched = False
+        for lead in self.leads:
+            if abs(common.wrap_angle(ray - lead["ray"])) <= math.radians(
+                    config.LEAD_MERGE_DEGREES):
+                lead["tries"] = config.LEAD_MAX_TRIES
+                matched = True
+        if not matched:
+            self.leads.append({
+                "x": x, "y": y, "ray": ray, "sightings": 1,
+                "tries": config.LEAD_MAX_TRIES,
+            })
+
+    def ranked(self, minimum=None):
+        """쫓을 만한 단서들 — 여러 번 본 것부터.
+
+        ⚠️ 하나만 주면 안 된다. 벽 앞에서 끝나 건너뛰는 단서가 가장 많이 본
+           단서일 수 있고, 그러면 뒤에 있는 **길이 트인** 단서가 영영 안 뽑힌다.
+        """
         minimum = (config.LEAD_MIN_SIGHTINGS if minimum is None else minimum)
         ready = [l for l in self.leads
                  if l["sightings"] >= minimum
                  and l["tries"] < config.LEAD_MAX_TRIES]
-        if not ready:
-            return None
-        return max(ready, key=lambda l: l["sightings"])
+        return sorted(ready, key=lambda l: l["sightings"], reverse=True)
+
+    def best(self, minimum=None):
+        """쫓을 만한 단서 — 여러 번 본 것부터. 없으면 None."""
+        ready = self.ranked(minimum)
+        return ready[0] if ready else None
 
     def look_point(self, lead, distance=None):
         """그 단서를 **가까이서 볼 수 있는** 자리 (월드 좌표).
@@ -497,8 +557,20 @@ class LeadList:
                 lead["y"] + step * math.sin(lead["ray"]))
 
     def give_up(self, lead):
-        """한 번 쫓아 봤다고 기록한다 (무한 추격 방지)."""
-        lead["tries"] += 1
+        """그 방향을 한 번 쫓아 봤다고 기록한다. 같은 방향의 단서는 함께 센다."""
+        ray = lead["ray"]
+        for other in self.leads:
+            if abs(common.wrap_angle(other["ray"] - ray)) <= math.radians(
+                    config.LEAD_MERGE_DEGREES):
+                other["tries"] += 1
+
+    def silence_toward(self, pose, x, y):
+        """그 좌표를 보는 단서는 더 쫓지 않는다. 이미 무엇인지 알았다는 뜻이다."""
+        ray = math.atan2(y - pose[1], x - pose[0])
+        for lead in self.leads:
+            if abs(common.wrap_angle(lead["ray"] - ray)) <= math.radians(
+                    config.LEAD_MERGE_DEGREES):
+                lead["tries"] = config.LEAD_MAX_TRIES
 
     def drop_near(self, x, y, radius=None):
         """그 자리 근처에서 생긴 단서를 버린다 (이미 가까이 가 봤다는 뜻)."""
@@ -533,7 +605,8 @@ def scan(image_bgr, ranges, pose, fov, target_list, lead_list=None, classify=Non
     if image_bgr is None:
         return 0, 0
     if config.DETECT_RANGING == "camera":
-        return _scan_camera(image_bgr, pose, fov, target_list, lead_list, classify, low_list)
+        return _scan_camera(image_bgr, pose, fov, target_list, lead_list, classify,
+                            low_list, ranges)
 
     placed = 0
     rejected = 0

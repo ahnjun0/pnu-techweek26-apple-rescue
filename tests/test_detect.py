@@ -530,19 +530,22 @@ def _fake_yolo(label):
     return classify
 
 
-@pytest.mark.parametrize("label, placed_expected, lead_expected", [
-    ("sports ball", 1, 0),      # 사과 계열 → 받는다
-    ("bottle", 0, 0),           # 캔 → 버린다 (단서도 안 남긴다)
-    (None, 0, 1),               # 못 봄 → 가까이 가서 다시 보도록 단서만
+@pytest.mark.parametrize("label, placed_expected, chase_expected", [
+    ("sports ball", 1, False),   # 사과 계열 → 받는다
+    ("bottle", 0, False),        # 캔 → 버린다. 그 방향은 다시 쫓지 않는다
+    (None, 0, True),             # 못 봄 → 가까이 가서 다시 보도록 단서만
 ])
-def test_yolo_decides_what_a_red_blob_is(monkeypatch, label, placed_expected, lead_expected):
+def test_yolo_decides_what_a_red_blob_is(monkeypatch, label, placed_expected,
+                                         chase_expected):
     monkeypatch.setattr(config, "DETECT_RANGING", "camera")
     classify = _fake_yolo(label)
     targets, leads = detect.TargetList(), detect.LeadList()
     placed, _ = detect.scan(_apple_image(1.5), np.full(360, 3.0), (0.0, 0.0, 0.0),
                             1.0472, targets, leads, classify=classify)
     assert placed == placed_expected
-    assert len(leads.leads) == lead_expected
+    # ⚠️ 캔이면 그 방위를 **적어 둔다** (tries 를 한도까지 올려서). 그래야 다음
+    #    프레임에 같은 방향이 단서로 되살아나지 않는다 — 개수가 아니라 "쫓는가" 로 본다.
+    assert (leads.best(minimum=1) is not None) == chase_expected
     assert len(classify.calls) == 1
 
 

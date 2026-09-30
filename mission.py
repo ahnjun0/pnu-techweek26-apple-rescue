@@ -95,6 +95,9 @@ class Mission:
         self._sweep_points = []       # 이미 둘러본 자리
         self._verify_tried = []     # 확인하러 가 본 미확정 후보 (두 번 안 간다)
         self._interrupted_for = []  # 같은 목표물로 두 번 끼어들지 않는다 (떨림 방지)
+        self._paused_explore = None  # 빨간 덩어리를 보러 가기 전의 (목표, 경로, 인덱스)
+        self._lead_chase = False     # 지금 빨간 덩어리 쪽으로 가는 중인가
+        self._short_leads = []       # 걸음이 짧아 건너뛴 방향 (한 번만 알린다)
         self._sweep_turned = 0.0
         self._sweep_theta = None
 
@@ -360,6 +363,118 @@ class Mission:
         #    docs/무엇을-빼기로-했나.md 참고.
         return None
 
+    def _stash_explore(self):
+        """빨간 덩어리를 보러 가기 전에 지금 탐색 목표를 담아 둔다."""
+        if self._paused_explore is not None or self._lead_chase or self.goal is None:
+            return
+        self._paused_explore = (self.goal, list(self.path), self.path_index)
+
+    def _resume_explore(self):
+        """담아 둔 탐색으로 돌아간다. 담아 둔 것이 없으면 목표만 비운다."""
+        self._lead_chase = False
+        if self._paused_explore is None:
+            self._clear_goal()
+            return
+        goal, path, index = self._paused_explore
+        self._paused_explore = None
+        self.goal = goal
+        self.path = list(path)
+        self.path_index = index
+        self._goal_age = 0.0
+        self._since_replan = config.MISSION_REPLAN_EVERY
+
+    def _replan_lead(self, pose):
+        """단서 목표로 가는 경로. 실패해도 프론티어 블랙리스트에는 넣지 않는다."""
+        self._since_replan = 0.0
+        self.path_index = 0
+        self.squeezing = False
+        found = planner.plan(self.plan_grid, pose[:2], self.goal, people=self._people_xy)
+        if not found:
+            found = planner.plan(
+                self.plan_grid, pose[:2], self.goal,
+                allow_unknown=True, people=self._people_xy)
+        self.path = found or []
+
+    def _steer_toward_red(self, pose, ranges, dt):
+        """방위만 아는 빨간 덩어리 쪽으로 한 걸음 다가간다.
+
+        지금 탐색은 멈추지 않고 담아 둔다. 도착하거나 길이 없으면 그 탐색으로 돌아간다.
+        같은 방향은 LEAD_MAX_TRIES 번만 간다.
+        """
+        if not self._lead_chase:
+            candidates = self.leads.ranked()
+            if self._paused_explore is not None and not candidates:
+                self._resume_explore()
+            lead = step = None
+            skipped = None
+            for maybe in candidates:
+                bearing = common.wrap_angle(maybe["ray"] - pose[2])
+                hit = detect.range_at(ranges, bearing)
+                reach = config.LEAD_STEP_DISTANCE
+                if hit is not None:
+                    # 목표는 라이다에 맞은 지점 앞에서 멈춘다. 물체 너머로 넘기지 않는다.
+                    reach = min(reach, hit - config.ROBOT_RADIUS - 0.05)
+                if reach >= config.LEAD_MIN_STEP:
+                    lead, step = maybe, reach
+                    break
+                # 벽 앞에서 끝나는 걸음이다. 정체도 안 밝혀지고 탐색만 끊긴다.
+                # 단서는 지우지 않는다 — 나중에 트인 자리에서 보면 걸음이 길어진다.
+                if skipped is None:
+                    skipped = (maybe["ray"], reach)
+            if lead is None:
+                if skipped is None:
+                    return None
+                key = round(skipped[0], 1)
+                if key in self._short_leads:
+                    return None
+                self._short_leads.append(key)
+                self.status = f"빨강까지 {skipped[1]:.2f} m 뿐이다 — 탐색을 이어간다"
+                return 0.0, 0.0
+            self._stash_explore()
+            self.goal = self.leads.look_point(lead, distance=step)
+            self.leads.give_up(lead)
+            self._lead_chase = True
+            self._goal_age = 0.0
+            self._replan_lead(pose)
+            self.status = (f"빨간 덩어리를 확인하러 간다"
+                           f" ({self.goal[0]:+.2f}, {self.goal[1]:+.2f})"
+                           f" — {lead['sightings']}회 봄, {step:.2f} m 전진")
+            if not self.path:
+                self.status = "빨간 덩어리 쪽으로 길이 없다 — 탐색을 이어간다"
+                self._resume_explore()
+                return 0.0, 0.0
+            return 0.0, 0.0
+
+        if self.goal is None or self._goal_age > self._goal_patience():
+            self.status = "빨간 덩어리 확인을 마쳤다 — 탐색을 이어간다"
+            self._resume_explore()
+            return 0.0, 0.0
+
+        if (self._since_replan >= config.MISSION_REPLAN_EVERY
+                or planner.path_is_blocked(self.path, self.plan_grid)):
+            self._replan_lead(pose)
+            if not self.path:
+                self.status = "빨간 덩어리 쪽으로 길이 없다 — 탐색을 이어간다"
+                self._resume_explore()
+                return 0.0, 0.0
+
+        speed, turn, status, self.path_index = follower.step(
+            pose, self.path, ranges, self.path_index,
+            current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
+            allow_idle=self._person_is_close(pose),
+            people=self._people + self._low_ghosts())
+
+        reached = common.distance(*pose[:2], *self.goal) <= config.FOLLOW_GOAL_TOLERANCE
+        if status == follower.ARRIVED or reached:
+            self.status = "빨간 덩어리 앞까지 갔다 — 탐색을 이어간다"
+            self._resume_explore()
+            return 0.0, 0.0
+        if status == follower.STOPPED:
+            self.status = "빨간 덩어리 확인 — 정지, 방향 조정 중"
+            return 0.0, turn
+        self.status = f"빨간 덩어리 확인 — {status}"
+        return speed, turn
+
     def _explore(self, pose, ranges, dt):
         # ⚠️ 시계는 탈출하거나 기다리는 동안에도 돌아야 한다 (APPROACH 와 같은 이유).
         #    안 그러면 벽에 눌렸다 빠져나오길 반복하는 내내 시간 초과가 안 걸린다.
@@ -371,32 +486,19 @@ class Mission:
 
         self._since_replan += dt
 
-        # --- 가는 길에 "뭔가 봤다" 면 들러서 확인한다 --------------------
-        # ⚠️ **확정된** 목표물은 이 자리에 올 수 없다 — _step 이 그보다 먼저
-        #    무조건 APPROACH 로 보낸다 (mission.py 의 "EXPLORE 중이라도" 검사).
-        #    문제는 **미확정** 후보다. 확정 문턱이 DETECT_MIN_SIGHTINGS(25)회라,
-        #    지나가며 몇 번만 본 목표물은 임무 판단에 **아예 안 보인다.**
-        #    실측(maze0): 40초에 남동 목표물 옆을 지나 북동으로 먼저 가고,
-        #    100~120초에 남동으로 되돌아왔다. 그 목표물은 결국 127회로 확정됐다
-        #    — 나중에 일부러 갔을 때다. (GUI 로 사용자가 짚어 줬다:
-        #    "분명히 카메라에서 목표물을 보았음에도 패스함")
-        #    이 장치는 _decide_next 에도 있지만 거기는 **포기하기 직전** 이라
-        #    탐색이 남아 있는 동안에는 열리지 않는다 — 자리가 문제였다.
-        #
-        # ⚠️ 한때 "들렀다 가는 것이 **오히려 짧을 때**" 만 끼어들었다
-        #    (to_target + APPROACH_DISTANCE < to_goal). 그 조건을 **없앴다.**
-        #    목표물과 프론티어를 같은 자격으로 비교한 것이 잘못이다:
-        #      목표물은 **확실한 점수**, 프론티어는 **추측** 이다.
-        #    그리고 언젠가는 그 목표물에 가야 하므로, 지금 지나치면 왕복이 추가된다.
-        #    실측(maze0): 40초에 남동 목표물 옆을 지나 북동으로 먼저 가고
-        #    100~120초에 되돌아왔다. 그 목표물은 나중에 일부러 갔을 때 127회로
-        #    확정됐다. (사용자가 GUI 에서 여러 번 짚었다: "분명히 카메라에서
-        #    목표물을 보았음에도 패스함", "검출했으면 그 쪽으로 가는 게 맞지 않아?")
-        #    같은 후보로는 한 번만 끼어든다 — 그래야 EXPLORE 와 APPROACH 를
-        #    왕복하며 카메라가 덜덜 떠는 일이 없다.
-        if self.goal is not None:
+        # --- 빨강을 먼저 본다 -----------------------------------------
+        # 위치까지 나온 후보는 **지금 가는 길을 끊고** 그쪽으로 간다. 확실한 점수다.
+        # 방위만 아는 빨강도 그 다음으로 본다 — 가까이 가야 정체가 밝혀진다.
+        # ⚠️ "프론티어를 들고 있는 동안에는 방위 단서로 길을 끊지 않는다" 를 넣어
+        #    봤다가 **되돌렸다.** 화장실을 깊게 보게 하려던 것인데, 그 실험은
+        #    150.4초에 남은 덩어리 15개가 전부 경로 없음으로 나오며 탐색을 포기하고
+        #    217.3초에 사과 0개로 복귀했다. 끼어들기를 유지한 실험은 296.3초에
+        #    거실 구석 사과를 방문했다 (apartment, 9/30).
+        if self._targets_missing():
             maybe = self.targets.best_unconfirmed()
             if maybe is not None and maybe.position not in self._interrupted_for:
+                self._stash_explore()
+                self._lead_chase = False
                 to_target = common.distance(*pose[:2], *maybe.position)
                 self._interrupted_for.append(maybe.position)
                 self.state = APPROACH
@@ -406,6 +508,9 @@ class Mission:
                                f" ({maybe.x:+.2f}, {maybe.y:+.2f})"
                                f" — {maybe.sightings}회 봄, {to_target:.2f} m")
                 return 0.0, 0.0
+            red = self._steer_toward_red(pose, ranges, dt)
+            if red is not None:
+                return red
 
         # --- 목표를 새로 잡아야 하는가 --------------------------------
         if self._needs_new_goal(pose):
@@ -524,6 +629,7 @@ class Mission:
     # ------------------------------------------------------------------
 
     def _enter_approach(self, pose):
+        self._lead_chase = False
         self.state = APPROACH
         self._clear_goal()
         self._goal_age = 0.0
@@ -540,8 +646,8 @@ class Mission:
             return escape
 
         target = self.targets.nearest_unvisited(*pose[:2])
-        if target is None and self._verify_tried:
-            # 확인하러 온 경우다. 확정된 것이 없으면 그 후보를 목표로 삼는다.
+        if target is None:
+            # 확정 전 후보도 목적지로 쓴다. 다가가는 동안 횟수가 쌓이면 확정된다.
             target = self.targets.best_unconfirmed()
         if target is None:
             self._leave_approach(pose)
@@ -551,6 +657,7 @@ class Mission:
         # 충분히 다가갔으면 방문으로 친다.
         if gap <= config.APPROACH_DISTANCE:
             target.visited = True
+            self.leads.silence_toward(pose, target.x, target.y)
             self.status = (f"목표물 방문 ({target.x:+.2f}, {target.y:+.2f}) "
                            f"— {len(self.targets.unvisited())} 개 남음")
             self._leave_approach(pose)
