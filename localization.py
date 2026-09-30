@@ -38,6 +38,7 @@ class Odometry:
         self.x = config.START_X if x is None else x
         self.y = config.START_Y if y is None else y
         self.theta = config.START_THETA if theta is None else theta
+        self.wheel_turn_rate = 0.0   # 바퀴로 계산한 회전 속도 [rad/s] (미끄러짐 감지용)
         self._prev_left = None    # 직전 엔코더 [rad]. None 이면 아직 기준이 없다
         self._prev_right = None
 
@@ -74,12 +75,14 @@ class Odometry:
             return self.pose
 
         # --- 바퀴가 굴러간 거리 [m] ------------------------------------
-        d_left = (left_rad - self._prev_left) * config.WHEEL_RADIUS
-        d_right = (right_rad - self._prev_right) * config.WHEEL_RADIUS
+        d_left = (left_rad - self._prev_left) * config.WHEEL_RADIUS_ODOM
+        d_right = (right_rad - self._prev_right) * config.WHEEL_RADIUS_ODOM
         self._prev_left = left_rad
         self._prev_right = right_rad
 
         d_center = 0.5 * (d_left + d_right)
+        if dt > 0.0:
+            self.wheel_turn_rate = (d_right - d_left) / config.WHEEL_BASE_ODOM / dt
 
         # --- theta 갱신: 믿을 만한 순서대로 하나만 고른다 ---------------
         theta_old = self.theta

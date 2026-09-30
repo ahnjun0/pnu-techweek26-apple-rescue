@@ -6,7 +6,7 @@ fail=0
 # ⚠️ 우리 코드만 검사한다. 주최 측 원본(competition/00_given/)은 교육용으로
 #    Supervisor 를 쓰고(tb3_ground_truth), 가상환경(.venv/)은 남의 패키지다.
 #    둘 다 검사에 넣으면 "위반" 이 떠서 진짜 위반을 가린다.
-EXCLUDE="--exclude-dir=00_given --exclude-dir=given --exclude-dir=submission --exclude-dir=webots_assets --exclude-dir=.venv --exclude-dir=.git"
+EXCLUDE="--exclude-dir=.claude --exclude-dir=00_given --exclude-dir=given --exclude-dir=submission --exclude-dir=webots_assets --exclude-dir=.venv --exclude-dir=.git"
 
 echo "규칙 1 — GPS/Supervisor 는 debug/ 밖에서 쓰면 안 된다"
 hits=$(grep -rn $EXCLUDE --include="*.py" -E "read_gps|enable_gps|getDevice\\(.gps.\\)|Supervisor" . \

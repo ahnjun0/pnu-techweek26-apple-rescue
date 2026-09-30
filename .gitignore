@@ -36,3 +36,6 @@ submission/worlds/_local_*.wbt
 
 # ./setup.sh 가 컴퓨터마다 만든다 (.venv 절대경로)
 controllers/*/runtime.ini
+
+# Claude Code 가 만드는 작업용 복사본(worktree) 등
+.claude/

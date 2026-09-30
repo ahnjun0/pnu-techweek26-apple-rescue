@@ -75,7 +75,8 @@ def main():
         image = (sensors.read_camera_bgr()
                  if tick % config.DETECT_EVERY == 0 else None)
         speed, turn = brain.step(pose, sensors.read_lidar(), dt,
-                                 image=image, camera_fov=camera_fov)
+                                 image=image, camera_fov=camera_fov,
+                                 wheel_turn=odometry.wheel_turn_rate)
 
         # 3. 바퀴에 넣는다
         sensors.drive(speed, turn)

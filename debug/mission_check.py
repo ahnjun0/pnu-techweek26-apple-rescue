@@ -154,6 +154,55 @@ def best_tour_on_map(grid, trail, targets):
     return best, broken
 
 
+class _Tee:
+    """print 를 화면과 파일에 동시에 쓴다 (요약이 Webots 종료에 날아가지 않게)."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, text):
+        for stream in self.streams:
+            stream.write(text)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+
+def save_tape(tape, compressed=True):
+    """LiDAR 녹화를 남긴다. 중간 저장은 빨리 끝나게 압축하지 않는다."""
+    if not tape["t"]:
+        return
+    saver = np.savez_compressed if compressed else np.savez
+    saver(os.path.join(OUT_DIR, "tape.npz"),
+          t=np.array(tape["t"], dtype=np.float32),
+          pose=np.array(tape["pose"], dtype=np.float32),
+          ranges=np.array(tape["ranges"], dtype=np.float32),
+          person=np.array(tape["person"], dtype=np.float32),
+          truth=np.array(tape["truth"], dtype=np.float32),
+          cmd=np.array(tape["cmd"], dtype=np.float32))
+
+
+def write_progress(brain, truth, pose, worst_drift, movers, low_objects, tick_seconds, note=""):
+    """지금까지의 핵심 숫자를 progress.txt 에 **덮어쓴다** (중간에 꺼도 남게)."""
+    start = brain.start_pose or (config.START_X, config.START_Y, 0.0)
+    lines = [
+        f"시각 {brain.elapsed:.1f} s  상태 {brain.state}  {brain.status}  {note}",
+        f"위치 오차 지금 {common.distance(*truth, *pose[:2]) * 100:.1f} cm, 최대 {worst_drift * 100:.1f} cm",
+        f"시작점까지 실제 거리 {common.distance(*truth, start[0], start[1]):.2f} m",
+        f"확정 목표물 {len(brain.targets.confirmed)} 개, 방문 "
+        f"{sum(1 for t in brain.targets.confirmed if t.visited)} 개: "
+        + ", ".join(f"({t.x:+.2f},{t.y:+.2f}){' 방문' if t.visited else ''}"
+                    for t in brain.targets.confirmed),
+        f"밀린 낮은 물체 {sum(1 for o in low_objects if o['moved_at'] is not None)} / {len(low_objects)}",
+        f"미끄러짐 감지 {getattr(brain, 'slip_count', 0)} 회",
+        "사람과 닿은 시간 " + (", ".join(f"{m['name']} {m['touch'] * tick_seconds:.1f}초" for m in movers)
+                             or "(움직이는 것 없음)"),
+    ]
+    with open(os.path.join(OUT_DIR, "progress.txt"), "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+
 def main():
     # ⚠️ Supervisor 는 debug 전용이다 (CLAUDE.md 규칙 1). 여기서는 사람과의
     #    "진짜" 거리를 재는 데만 쓴다 — LiDAR 최근접은 LIDAR_MIN_RANGE(0.12 m)에
@@ -236,6 +285,23 @@ def main():
                 tx, ty, _ = node.getPosition()
                 targets_true.append((tx, ty))
 
+    # ⚠️ 바닥의 **낮은 물체**(과일·캔)는 LiDAR 평면(약 17 cm)보다 낮아 로봇이 못 본다.
+    #    부딪혀 밀렸는지 재려고 시작 위치를 적어 둔다 (채점 전용).
+    LOW_TYPES = ("Apple", "RedApple", "GreenApple", "PurpleApple", "OrangeApple",
+                 "Orange", "Can")
+    low_objects = []
+    if robot.getSupervisor():
+        children = robot.getRoot().getField("children")
+        for i in range(children.getCount()):
+            node = children.getMFNode(i)
+            if node is None or node.getTypeName() not in LOW_TYPES:
+                continue
+            ox, oy, oz = node.getPosition()
+            if oz > 0.2:
+                continue                # 식탁 위 과일은 로봇이 못 친다
+            low_objects.append({"name": node.getDef() or node.getTypeName(), "node": node,
+                                "start": (ox, oy), "moved_at": None, "robot": None})
+
     # tape 에는 사람 하나의 위치만 남긴다 (people.py 검증용). 사람이 없으면 첫 물체.
     pedestrian = movers[0]["node"] if movers else None
     if not robot.getSupervisor():
@@ -280,7 +346,7 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
     trace = open(os.path.join(OUT_DIR, "trace.csv"), "w", encoding="utf-8")
     trace.write("t,x,y,theta,gx,gy,v,w,state,goal_x,goal_y,path_len,"
-                "near_d,near_a,squeeze,path_clear,status\n")
+                "near_d,near_a,squeeze,path_clear,dwa_fwd,dwa_safe_fwd,dwa_squeeze,status\n")
 
     trail_odom = []
     trail_true = []
@@ -335,7 +401,15 @@ def main():
     start_true = None
     tick = 0
 
-    while robot.step(timestep) != -1:
+    # ⚠️ Webots 를 닫거나 되돌리면 step() 이 -1 을 주고, **1초 뒤 강제 종료** 한다
+    #    ("Forced termination … after 1 second"). 그때는 가벼운 기록만 먼저 남긴다.
+    terminated = False
+    next_tape_save = 60.0
+    truth, pose = truth_src.xy(), odometry.pose   # 첫 틱 전에 닫혀도 progress 를 쓸 수 있게
+    while True:
+        if robot.step(timestep) == -1:
+            terminated = True
+            break
         tick += 1
         left, right = sensors.read_encoders()
         odometry.update(left, right, dt, compass_values=sensors.read_compass())
@@ -345,7 +419,8 @@ def main():
         image = (sensors.read_camera_bgr()
                  if tick % config.DETECT_EVERY == 0 else None)
         speed, turn = brain.step(pose, ranges, dt,
-                                 image=image, camera_fov=camera_fov)
+                                 image=image, camera_fov=camera_fov,
+                                 wheel_turn=odometry.wheel_turn_rate)
         sensors.drive(speed, turn)
 
         # 스캔 정합이 위치를 고쳐 줬으면 오도메트리에 되먹인다.
@@ -392,6 +467,12 @@ def main():
         finite = ranges[np.isfinite(ranges) & (ranges >= config.LIDAR_MIN_RANGE)]
         if len(finite):
             nearest = float(finite.min())
+            for obj in low_objects:
+                if obj["moved_at"] is None and tick % 8 == 0:
+                    ox, oy, _ = obj["node"].getPosition()
+                    if math.hypot(ox - obj["start"][0], oy - obj["start"][1]) > 0.02:
+                        obj["moved_at"] = brain.elapsed
+                        obj["robot"] = tuple(truth)
             if pedestrian is not None:
                 px, py, _ = pedestrian.getPosition()
                 tape["t"].append(brain.elapsed)
@@ -465,6 +546,7 @@ def main():
                     f"{brain.state},{goal[0]:.3f},{goal[1]:.3f},{len(brain.path)},"
                     f"{near_d:.3f},{math.degrees(near_a):.1f},"
                     f"{int(brain.squeezing)},{path_clearance(brain):.3f},"
+                    f"{follower.LAST['fwd']},{follower.LAST['safe_fwd']},{follower.LAST['squeeze']},"
                     f"\"{brain.status}\"\n")
 
         if tick % config.VIZ_UPDATE_EVERY == 0:
@@ -551,6 +633,13 @@ def main():
                 reached[mark] = (brain.elapsed, so_far)
 
         if brain.elapsed >= next_report:
+            trace.flush()                       # 중간에 꺼도 trace.csv 가 거의 다 남게
+            write_progress(brain, truth, pose, worst_drift, movers, low_objects,
+                           timestep / 1000.0)
+        if brain.elapsed >= next_tape_save:
+            next_tape_save += 60.0
+            save_tape(tape, compressed=False)
+        if brain.elapsed >= next_report:
             next_report += REPORT_EVERY
             near_d, near_a = follower.nearest_obstacle(ranges)
             explored = int(mapping.is_free(brain.grid).sum())
@@ -580,8 +669,18 @@ def main():
             break
 
     trace.close()
+    write_progress(brain, truth, pose, worst_drift, movers, low_objects, timestep / 1000.0,
+                   note="(Webots 를 닫아서 멈춤)" if terminated else "(끝)")
+    if terminated:
+        save_tape(tape, compressed=False)     # 1초 안에 끝나야 한다 — 무거운 요약은 건너뛴다
+        print("  Webots 가 닫혀 멈췄다 — progress.txt 와 tape.npz 만 남긴다", flush=True)
+        return
 
     # --- 요약 ---------------------------------------------------------------
+    # 화면과 summary.txt 에 동시에 쓴다 (화면 출력은 Webots 가 닫힐 때 날아갈 수 있다).
+    summary_file = open(os.path.join(OUT_DIR, "summary.txt"), "w", encoding="utf-8")
+    real_stdout = sys.stdout
+    sys.stdout = _Tee(real_stdout, summary_file)
     explored = int(mapping.is_free(brain.grid).sum())
     area = explored * common.cell_area()
     travelled = sum(common.distance(*a, *b)
@@ -592,6 +691,17 @@ def main():
     print("=" * 74)
     print(f"  상태            : {brain.state}  ({brain.status})")
     confirmed = brain.targets.confirmed
+    import detect as _detect
+    print(f"  YOLO 판정        : {dict(_detect.YOLO_COUNT) or '한 번도 안 돌았다'}"
+          f"  (모델 {'켬' if config.DETECT_YOLO else '끔'})")
+    print(f"  미끄러짐 감지     : {brain.slip_count} 회"
+          + (f"  {[(round(x, 2), round(y, 2)) for x, y in brain.slip_spots]}" if brain.slip_spots else ""))
+    hit = [o for o in low_objects if o["moved_at"] is not None]
+    print(f"  밀린 낮은 물체    : {len(hit)} / {len(low_objects)} 개"
+          + "".join(f"\n      {o['name']:12s} ({o['start'][0]:+.2f},{o['start'][1]:+.2f})"
+                    f" {o['moved_at']:.0f}초에 처음 움직임"
+                    f" → 지금 ({o['node'].getPosition()[0]:+.2f},{o['node'].getPosition()[1]:+.2f})"
+                    for o in hit))
     print(f"  찾은 목표물      : {len(confirmed)} 개"
           f" (방문 {sum(1 for t in confirmed if t.visited)} 개,"
           f" 전체 후보 {len(brain.targets.targets)} 개)")
@@ -883,15 +993,11 @@ def main():
               " (SAR_LAYOUT 이 있으면 잰다)")
     print("=" * 74)
     sys.stdout.flush()
+    sys.stdout = real_stdout
+    summary_file.close()
 
     if tape["t"]:
-        np.savez_compressed(os.path.join(OUT_DIR, "tape.npz"),
-                            t=np.array(tape["t"], dtype=np.float32),
-                            pose=np.array(tape["pose"], dtype=np.float32),
-                            ranges=np.array(tape["ranges"], dtype=np.float32),
-                            person=np.array(tape["person"], dtype=np.float32),
-                            truth=np.array(tape["truth"], dtype=np.float32),
-                            cmd=np.array(tape["cmd"], dtype=np.float32))
+        save_tape(tape)
         if frames["t"]:
             np.savez_compressed(os.path.join(OUT_DIR, "frames.npz"),
                                 t=np.array(frames["t"], dtype=np.float32),

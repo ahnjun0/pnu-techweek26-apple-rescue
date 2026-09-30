@@ -42,6 +42,9 @@ WHEEL_BASE = 0.16           # TurtleBot3Burger.proto:44,132 (anchor y)
 # 측정 방법은 debug/odometry_check.py 실행 → "2. 제자리 360도 회전" 의 encoder theta.
 # ⚠️ 로봇이 바뀌면 이 값도 다시 재야 한다.
 WHEEL_BASE_ODOM = 0.180
+# 오도메트리가 쓰는 바퀴 반지름. 주행 명령(sensors.drive)은 기하값 WHEEL_RADIUS 를 쓴다.
+# 연습·빈 월드에서는 기하값이 맞았다 (empty.wbt 1 m 직진 오차 0.3 cm, 32·64 ms 모두).
+WHEEL_RADIUS_ODOM = WHEEL_RADIUS
 ROBOT_RADIUS = 0.13         # 몸체 외접 반경 0.110 + 여유. 팽창 반경의 기준
 
 # ── 실제 몸체 크기 (충돌 여부를 재는 기준) ────────────────────────────────────
@@ -533,6 +536,10 @@ DWA_IDLE_PENALTY = DWA_WEIGHT_GOAL + DWA_WEIGHT_CLEARANCE + 0.1
 #    (tests/test_mission.py::test_a_single_tick_lidar_spike_is_ignored).
 #    뒤로 가는 것은 제자리에서 방향을 고르는 것보다 나쁜 선택이어야 한다.
 DWA_REVERSE_PENALTY = DWA_IDLE_PENALTY + 0.1
+# 직전에 돌던 방향을 유지하는 후보에 주는 가산점 (0 = 끔).
+# ⚠️ debug/doorway_report.py: 버벅인 19구간 중 15구간은 전진 후보가 **100% 안전** 했는데도
+#    회전 방향이 2초에 6~22번 뒤바뀌었다 — 여유가 아니라 방향 선택이 흔들린 것이다.
+DWA_TURN_KEEP = 0.0
 
 # DWA 가 후보를 "부딪힌다" 고 버리는 하한: 로봇 반경 + 이 값.
 # ⚠️ 이건 SAFETY_CORRIDOR_CLEARANCE(추종+정지 주행기의 통로 반폭)와 다른 값이다.
@@ -590,6 +597,18 @@ MISSION_GOAL_TIMEOUT_SLACK = 2.5   # 경로 소요시간의 몇 배까지 기다
 MISSION_STUCK_SECONDS = 4.0     # [s] 가라고 했는데 이만큼 안 움직이면 끼인 것이다
 MISSION_STUCK_DISTANCE = 0.06   # [m] "안 움직였다" 의 기준
 MISSION_BACKUP_SECONDS = 1.0    # [s] 끼였을 때 빠져나오는 시간
+
+# --- 미끄러짐 감지 (mission._check_slip) ---------------------------------------
+# ⚠️ apartment 카펫(두께 2 cm) 가장자리에 한쪽 바퀴를 걸친 채 돌면, 로봇은 거의 못 돌고
+#    턱을 따라 옆으로 미끄러진다 — 5초에 80 cm, 오도메트리 오차 20 → 67 cm (9/30 GUI).
+#    그때 **나침반 회전은 0~0.3 rad/s** 인데 바퀴는 1.2 rad/s 로 돈다 (평소 비율 0.87~1.14).
+#    녹화 재생: 문턱 0.6 으로 카펫 사건(302~309초)과 185 cm 튐(384~395초)을 모두 잡았다.
+#    잡히면 1초 후진하고, 그 자리를 계획용 지도에 찍어 다시 가지 않는다.
+SLIP_ENABLED = False            # 측정 전이라 꺼 둔다
+SLIP_TURN_DIFF = 0.6            # [rad/s] 바퀴 회전 속도와 나침반 회전 속도의 차이
+SLIP_SECONDS = 0.3              # [s] 이만큼 이어져야 미끄러짐으로 본다
+SLIP_MARK_RADIUS = 0.10         # [m] 미끄러진 자리를 계획용 지도에 벽으로 찍는 반경
+SLIP_CLEAR_BEFORE_GIVEUP = False   # 탐색을 포기하기 전에 미끄러진 자리 표시를 풀고 다시 찾는다
 
 # ⚠️ 탈출이 아무리 해도 안 되면, 그건 바퀴가 헛돌고 있다는 뜻이다.
 #    계속 돌리면 엔코더만 쌓여서 추정 위치가 폭주한다 — 실제로 사람에게 눌린
@@ -874,6 +893,19 @@ SCANMATCH_MIN_GAIN = 0.01
 #    실측(comb1): 80초에 오도메트리 오차 42 cm, 끝까지 회복 못 하고 탐색률 53% 로
 #    종료 (comb0 은 같은 설정에서 내내 11 cm).
 SCANMATCH_COMPONENT_GAIN = SCANMATCH_MIN_GAIN * 5.0
+
+# --- 정밀 스캔 매칭 (scanmatch.match_fine) -----------------------------------
+# 9/30 녹화 재생(debug/replay_localization.py)으로 보니 격자 매칭(match)도 같은 주행에서
+# 오차를 186 → 38 cm 로 줄였다. 다만 5 cm 칸 단위라 카펫 턱에서 틱당 1 cm 씩 미끄러지는
+# 것을 바로 못 따라가고, 방향까지 건드린다. 그래서:
+#   - 거리장을 보간해 **연속값**으로 x, y 만 고친다 (방향은 나침반이 이미 정확하다)
+#   - 가우스-뉴턴. 정보행렬 JᵀJ 의 고윳값이 작은 방향(복도의 진행 방향)은 고치지 않는다
+#   - 먼 점(지도에 없는 사람·새 물체)은 SCANMATCH_FINE_CAP 에서 자른다
+SCANMATCH_METHOD = "grid"          # "grid" (기존) / "fine"
+SCANMATCH_FINE_ITERS = 6
+SCANMATCH_FINE_CAP = 0.20          # [m] 이보다 벽에서 먼 점은 맞춤에 안 쓴다
+SCANMATCH_FINE_MIN_EIG = 0.15      # 방향별 정보량 하한 (점 하나당, 1/칸² 단위의 평균)
+SCANMATCH_FINE_BLEND = 1.0         # 찾은 보정을 이만큼만 적용한다 (1 = 전부)
 # ⚠️ "많이 틀어졌을 때만 고치기" 를 넣어 봤다가 뺐다. 그게 최악이었다:
 #    방문 9 -> 5, 평균 복귀오차 20.8 -> 291.8 cm, 900초짜리 실행이 둘.
 #    드리프트가 커진 뒤에 큰 폭으로 뛰면 이미 망가진 지도를 더 망가뜨린다.
@@ -958,6 +990,24 @@ YOLO_DEVICE = "cpu"             # 예시와 같다. CPU 는 매번 같은 답을
 YOLO_CONF = 0.10                # 이보다 낮은 확신의 상자는 버린다
 YOLO_ACCEPT = ("sports ball", "apple", "orange")
 YOLO_REJECT = ("bottle", "cup", "vase", "wine glass", "fire hydrant")
+
+# --- 낮은 물체 (detect.LowObstacles) --------------------------------------------
+# ⚠️ 바닥의 과일·캔은 LiDAR 평면(약 17 cm)보다 낮아 지도에도 DWA 에도 없다 — 로봇이
+#    그대로 치고 다녔다 (9/30 GUI 관찰). 카메라로 찾아 **계획용 지도**와 DWA 에 넣는다.
+#    LiDAR 지도에 직접 찍으면 광선이 물체 위로 지나가며 "빈 칸"으로 지워 버린다.
+#    찾는 곳: 확정한 빨간 사과 / 모양 검사에서 떨어진 바닥의 빨간 덩어리(누운 캔 등) /
+#            YOLO 가 본 작은 물체 (YOLO_LOW_EVERY 장마다 한 번).
+LOW_OBSTACLES_ENABLED = False    # 측정 전이라 꺼 둔다 (debug/ab.sh 로 켜서 잰다)
+YOLO_LOW_EVERY = 4               # 카메라 N 장마다 YOLO 로 낮은 물체를 찾는다 (64 ms 틱에서 약 0.5초)
+YOLO_LOW_CLASSES = ("apple", "orange", "sports ball", "banana", "bottle", "cup", "vase")
+# ⚠️ 2.5 m / 0.15 m / 2회 로 켰더니 멀리서 본 물체가 시선 방향으로 **번져** 점 29개 중
+#    19개가 엉뚱한 자리였고(보라 사과 하나가 1 m 에 걸쳐 6점), 그 점들이 통로를 막아
+#    322초에 미탐색 24곳이 전부 "갈 수 없음"이 됐다. 녹화 재생으로 고른 값:
+#    1.2 m / 0.3 m / 3회 → 점 6개, 엉뚱한 점 2개, 실제로 치던 과일은 그대로 잡힌다.
+LOW_MAX_RANGE = 1.2              # [m] 바닥 접점으로 잰 거리가 이보다 멀면 믿지 않는다 (가까울수록 정확)
+LOW_MERGE_RADIUS = 0.30          # [m] 이 안의 관측은 같은 물체로 합친다
+LOW_MIN_SIGHTINGS = 3            # 이만큼 본 것만 장애물로 쓴다 (한 번 반짝한 잡음 제외)
+LOW_OBSTACLE_RADIUS = 0.06       # [m] 지도에 벽으로 찍을 반경 (사과 반지름 0.05 + 여유)
 #    (진짜 사과 1~7%, 소화기 81% — 실측. 그 사이에 넉넉히 둔다)
 
 # --- 목표물 목록 관리 ------------------------------------------------------
@@ -1162,12 +1212,25 @@ if SAR_PROFILE == "apartment":
     # ⚠️ 목표 색·개수는 **당일 공개**. 지금은 빨간 사과 2개로 가정한다
     #    (apartment 의 사과 7개 중 빨강이 2개). 공개되면 여기와 DETECT_* 를 고친다.
     MISSION_TARGET_COUNT = 2
+    # ⚠️ apartment 바닥에서는 바퀴 회전으로 계산한 거리가 실제보다 **1.7% 짧다**
+    #    (9/30 GUI 실행, 직진 38구간 중앙값 0.983, 범위 0.976~0.988 — 장소와 무관하게 일정).
+    #    빈 월드를 같은 64 ms 로 돌리면 +0.2% 라 물리 주기 탓이 아니다. 원인은 모른다.
+    #    그대로 두면 60 m 에 약 1 m 가 쌓인다. 실제 로봇처럼 바닥에 맞춰 유효 반지름을 보정한다.
+    WHEEL_RADIUS_ODOM = WHEEL_RADIUS / 0.983
     # 사과는 LiDAR 보다 낮다 — 거리는 카메라만으로 잰다 (DETECT_RANGING 설명 참고).
     DETECT_RANGING = "camera"
     # 보행자가 있다. 9/30 측정: 끄면 접촉 3.8초, 켜면(칼만 포함) 0초이고
     # 납작한 캔을 거른 뒤 빨간 사과 2/2 를 방문했다 (끄면 1/2).
     PEOPLE_ENABLED = True
     PEOPLE_KALMAN = True
+    # 9/30 최종 (19:20 동결): 정밀 스캔 매칭 + 낮은 물체 장애물 + 미끄러짐 감지.
+    #   측정(apartment, 보행자 있음): 빨간 사과 1/2 방문, 과일 0/8 밀림, 위치 오차 최대 9 cm,
+    #   364초에 복귀, 시작점까지 실제 0.24 m.
+    #   (끈 상태: 과일 3/8 밀림, 오차 304 cm, 사과 0/2, 실제 2.07 m 떨어져 멈춤)
+    SCANMATCH_ENABLED = True
+    SCANMATCH_METHOD = "fine"
+    LOW_OBSTACLES_ENABLED = True
+    SLIP_ENABLED = True
 
 
 # --- 실행마다 값 바꾸기 (측정용) --------------------------------------------

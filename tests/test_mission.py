@@ -887,3 +887,39 @@ def test_return_retraces_the_trail_when_the_map_has_no_path():
     assert "되짚" in brain.status
     assert brain._retrace[-1] == (0.0, 0.0)
     assert speed > 0.0, "되짚는 길로 실제로 움직여야 한다"
+
+
+def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map(monkeypatch):
+    monkeypatch.setattr(config, "LOW_OBSTACLES_ENABLED", True)
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    for _ in range(config.LOW_MIN_SIGHTINGS):
+        brain.low.add(0.5, 0.0)
+    brain._refresh_plan_grid()
+    cell = common.to_cell(0.5, 0.0)
+    assert mapping.is_occupied(brain.plan_grid)[cell]
+    assert not mapping.is_occupied(brain.grid)[cell], "LiDAR 지도는 그대로 둔다"
+    assert (0.5, 0.0, 0.0, 0.0, 99) in brain._low_ghosts()
+
+
+def test_slip_is_detected_when_wheels_turn_but_the_compass_does_not(monkeypatch):
+    """카펫 턱: 바퀴는 1.2 rad/s 로 도는데 나침반은 그대로 → 후진하고 그 자리를 찍는다."""
+    monkeypatch.setattr(config, "SLIP_ENABLED", True)
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    dt = 0.064
+    for _ in range(int(config.SLIP_SECONDS / dt) + 2):
+        brain._check_slip((0.0, 0.0, 0.0), 1.2, dt)
+    assert brain.slip_spots == [(0.0, 0.0)] and brain.slip_count == 1
+    assert brain._backup_left > 0.0
+    assert mapping.is_occupied(brain.plan_grid)[common.to_cell(0.0, 0.0)]
+
+
+def test_no_slip_when_the_compass_follows_the_wheels(monkeypatch):
+    monkeypatch.setattr(config, "SLIP_ENABLED", True)
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    dt, theta = 0.064, 0.0
+    for _ in range(40):
+        theta += 1.1 * dt                   # 나침반도 거의 같이 돈다 (비율 0.92)
+        brain._check_slip((0.0, 0.0, theta), 1.2, dt)
+    assert brain.slip_spots == []

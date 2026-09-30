@@ -570,3 +570,39 @@ def test_camera_scan_rejects_a_flat_red_object(monkeypatch):
     placed, _ = detect.scan(img, np.full(360, 5.0), (0.0, 0.0, 0.0), 1.0472,
                             detect.TargetList())
     assert placed == 0
+
+
+def test_floor_position_of_an_object_straight_ahead(monkeypatch):
+    """화면 가운데 열, 수평선 아래 행 → 로봇 앞쪽 바닥의 점 (거리 = 높이 / tan(내려본 각))."""
+    focal = 320.0 / math.tan(1.0472 / 2.0)
+    d = 1.0
+    row = 239.5 + focal * config.CAMERA_HEIGHT / d
+    x, y = detect.floor_position(row, 319.5, (0.0, 0.0, 0.0), 640, 480, 1.0472)
+    assert abs(x - (d + config.CAMERA_FORWARD)) < 0.02 and abs(y) < 0.01
+    assert detect.floor_position(200, 320, (0.0, 0.0, 0.0), 640, 480, 1.0472) is None, \
+        "수평선 위는 바닥이 아니다"
+
+
+def test_low_obstacles_need_several_sightings_and_merge_nearby():
+    low = detect.LowObstacles()
+    for k in range(config.LOW_MIN_SIGHTINGS - 1):
+        low.add(1.0 + 0.05 * k, 1.0)
+    assert low.positions() == [], "몇 번 더 봐야 믿는다"
+    low.add(1.0, 1.0)
+    (x, y), = low.positions()
+    assert abs(x - 1.0) < 0.1 and y == 1.0
+
+
+def test_a_flat_red_can_on_the_floor_becomes_a_low_obstacle(monkeypatch):
+    """누운 캔은 사과는 아니지만(모양 검사) 부딪히면 안 되는 물체로는 남는다."""
+    import cv2
+    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
+    img = np.zeros((480, 640, 3), np.uint8)
+    cv2.rectangle(img, (505, 247), (530, 257), (0, 0, 255), -1)
+    low = detect.LowObstacles()
+    monkeypatch.setattr(config, "LOW_MAX_RANGE", 10.0)     # 이 합성 영상의 캔은 1.2 m 보다 멀다
+    for _ in range(config.LOW_MIN_SIGHTINGS):
+        placed, _ = detect.scan(img, np.full(360, 5.0), (0.0, 0.0, 0.0), 1.0472,
+                                detect.TargetList(), low_list=low)
+        assert placed == 0
+    assert len(low.positions()) == 1

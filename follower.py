@@ -29,6 +29,10 @@ NO_PATH = "경로 없음"
 COUNT = {}
 
 
+# 직전 DWA 틱의 요약 — 채점 스크립트가 기록한다 (관찰용, 결정에는 쓰지 않는다).
+LAST = {"fwd": 0, "safe_fwd": 0, "squeeze": 0}
+
+
 def _tally(key):
     COUNT[key] = COUNT.get(key, 0) + 1
 
@@ -431,6 +435,9 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     #    실측: comb 지도에서 최근접 0.34 m(요구 0.33 m) 인 자리에 **200초** 갇혀
     #    제자리 회전만 했다. 비상구는 코드에 있었지만 열린 적이 없었다.
     forward = speed_flat > config.DWA_IDLE_SPEED
+    LAST["fwd"] = int(forward.sum())
+    LAST["safe_fwd"] = int((safe & forward).sum())
+    LAST["squeeze"] = 0
     # 계수는 서로 겹쳐도 되게 독립적으로 센다 (elif 로 묶으면 원인이 가려진다)
     _tally("틱")
     if not forward.any():
@@ -452,6 +459,7 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
         #    계획기가 "평소 여유 → 안 되면 좁게" 로 두 번 시도하는 것과 같이,
         #    여기서도 최소 여유로 한 번 더 본다.
         squeeze = clearance > config.ROBOT_RADIUS + config.DWA_SQUEEZE_MARGIN
+        LAST["squeeze"] = 1
         # ⚠️ 비상구가 후진·제자리회전을 열어 주는 것은 옳지만, **전진** 까지
         #    무조건 열면 정면의 벽으로 기어든다. 창을 넓히기 전에는 창이 좁아
         #    전진 후보를 표현조차 못 해 이 구멍이 드러나지 않았다.
@@ -492,6 +500,9 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     # 후진에는 벌점을 준다. 목표가 뒤에 있으면 돌아서야지, 뒤로 기어가면 안 된다.
     # (앞이 전부 막혀 안전한 후보가 후진뿐이면 그때는 후진이 선택된다.)
     score -= config.DWA_REVERSE_PENALTY * (speed_flat < 0.0)
+    if config.DWA_TURN_KEEP and abs(current_turn) > 0.05:
+        # 방향을 매 틱 뒤집지 않게 — 지금 도는 쪽(또는 곧게)이면 가산점
+        score += config.DWA_TURN_KEEP * (np.sign(turn_flat) != -np.sign(current_turn))
 
     # 아무것도 안 하는 후보에 벌점. 사람이 보이면(allow_idle) 벌점을 끈다 —
     # 사람 근처에서는 가만히 있는 것이 옳다. 자세한 근거는 config 의 주석.

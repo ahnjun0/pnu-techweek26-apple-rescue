@@ -57,6 +57,17 @@ def to_cell(x, y):
     return row.astype(np.int32), col.astype(np.int32)
 
 
+def to_cell_float(x, y):
+    """월드 좌표 (x, y)[m] → 격자 (row, col) 의 **연속값**. 칸 중심이 정수다.
+
+    to_cell 은 내림한 정수 칸을 주고, 이건 그 사이의 위치까지 준다
+    (보간이 필요한 곳 — scanmatch.match_fine — 에서만 쓴다). to_world 의 역함수다.
+    """
+    col = (np.asarray(x, dtype=np.float64) - config.MAP_ORIGIN_X) / config.MAP_RESOLUTION - 0.5
+    row = (np.asarray(y, dtype=np.float64) - config.MAP_ORIGIN_Y) / config.MAP_RESOLUTION - 0.5
+    return row, col
+
+
 def to_world(row, col):
     """격자 (row, col) → 그 셀 중심의 월드 좌표 (x, y)[m]."""
     x = config.MAP_ORIGIN_X + (np.asarray(col) + 0.5) * config.MAP_RESOLUTION
@@ -99,6 +110,11 @@ def cells_to_metres(cells):
     해상도 곱셈도 나눗셈처럼 여기 한 곳에만 둔다 (CLAUDE.md 규칙 4).
     """
     return cells * config.MAP_RESOLUTION
+
+
+def to_cells_float(metres):
+    """길이 [m] → 칸 수 (소수 그대로). 정밀 스캔 매칭처럼 칸 사이를 다룰 때 쓴다."""
+    return metres / config.MAP_RESOLUTION
 
 
 def to_cells(metres, round_up=True):

@@ -83,6 +83,13 @@ class Mission:
         # 카메라로 봤지만 거리를 못 잰 관측 — 방위만 아는 단서 (detect.LeadList).
         self.leads = detect.LeadList()
         self.classify = None        # YOLO (yolo_check.load()). 없으면 모양 검사만 한다
+        self.low = detect.LowObstacles()   # LiDAR 에 안 보이는 낮은 물체 (config 참고)
+        self._camera_frames = 0
+        self._slip_for = 0.0        # 바퀴·나침반 회전이 어긋난 채 이어진 시간 [s]
+        self._slip_theta = None
+        self.slip_spots = []        # 미끄러진 자리 (계획용 지도에 벽으로 찍는다)
+        self.slip_count = 0         # 미끄러짐 감지 횟수 (표시를 풀어도 센다)
+        self.plan_grid = self.grid  # 계획용 지도 = LiDAR 지도 + 낮은 물체 (_refresh_plan_grid)
         self.target_count = config.MISSION_TARGET_COUNT
         # 둘러보기 (SWEEP)
         self._sweep_points = []       # 이미 둘러본 자리
@@ -135,7 +142,7 @@ class Mission:
 
     # ------------------------------------------------------------------
 
-    def step(self, pose, ranges, dt, image=None, camera_fov=None):
+    def step(self, pose, ranges, dt, image=None, camera_fov=None, wheel_turn=None):
         """한 틱. (v, omega) 를 돌려준다.
 
         image/camera_fov 를 주면 목표물도 찾는다. 안 주면 탐색만 한다
@@ -145,7 +152,14 @@ class Mission:
             self._camera_fov = camera_fov
         if image is not None and camera_fov is not None:
             detect.scan(image, ranges, pose, camera_fov, self.targets,
-                        self.leads, classify=self.classify)
+                        self.leads, classify=self.classify, low_list=self.low)
+            self._camera_frames += 1
+            if (config.LOW_OBSTACLES_ENABLED and self.classify is not None
+                    and self._camera_frames % config.YOLO_LOW_EVERY == 0):
+                height, width = image.shape[:2]
+                detect.yolo_low_obstacles(self.classify(image), pose, width, height,
+                                          camera_fov, self.low)
+        self._check_slip(pose, wheel_turn, dt)
         speed, turn = self._step(pose, ranges, dt)
         self.last_speed, self.last_turn = speed, turn
         return speed, turn
@@ -169,9 +183,10 @@ class Mission:
             mapping.update(self.grid, pose, ranges)
             if self._camera_fov:
                 mapping.mark_camera_seen(
-                    self.camera_seen, self.grid, pose, self._camera_fov,
+                    self.camera_seen, self.plan_grid, pose, self._camera_fov,
                     common.to_cells(config.DETECT_MAX_RANGE))
             self._field = None          # 지도가 바뀌었으니 거리장도 다시 만든다
+        self._refresh_plan_grid()
 
         # 스캔 정합 — 바퀴가 헛돌아도 벽은 제자리에 있다.
         # ⚠️ 고친 값은 여기서 쓰지 않고 바깥(컨트롤러)이 오도메트리에 되먹인다.
@@ -181,8 +196,9 @@ class Mission:
             if self._field is None:
                 self._field = scanmatch.likelihood_field(self.grid)
                 self._known = scanmatch.known_cells(self.grid)
-            fixed, _ = scanmatch.match(pose, ranges, self._field,
-                                       known=self._known)
+            matcher = (scanmatch.match_fine if config.SCANMATCH_METHOD == "fine"
+                       else scanmatch.match)
+            fixed, _ = matcher(pose, ranges, self._field, known=self._known)
             self.pose_fix = fixed
             pose = fixed
 
@@ -220,7 +236,8 @@ class Mission:
         #    EXPLORE 였고 675초 예산을 한참 넘겼는데도 복귀하지 않았다.
         #    (choose_unseen 때와 같은 실수다: 장치가 아니라 **묻는 자리** 가 문제.)
         #    그러니 상태와 무관하게 **매 틱** 본다.
-        if (config.MISSION_TIME_LIMIT and self.targets.confirmed
+        # (찾은 것이 없어도 돌아온다 — 과제의 절반은 복귀다.)
+        if (config.MISSION_TIME_LIMIT
                 and self.state not in (RETURN, DONE)
                 and self.elapsed > self._return_deadline(pose)):
             self.state = RETURN
@@ -400,7 +417,7 @@ class Mission:
 
         # --- 경로가 낡았으면 다시 계획 --------------------------------
         if (self._since_replan >= config.MISSION_REPLAN_EVERY
-                or planner.path_is_blocked(self.path, self.grid)):
+                or planner.path_is_blocked(self.path, self.plan_grid)):
             self._replan(pose)
             if not self.path:
                 self._fail_goal("경로를 못 찾음")
@@ -410,7 +427,7 @@ class Mission:
         speed, turn, status, self.path_index = follower.step(
             pose, self.path, ranges, self.path_index,
             current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
-            allow_idle=self._person_is_close(pose), people=self._people)
+            allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
 
         if status == follower.STOPPED:
             # 앞으로 갈 수 있는 후보가 없다 = 주행기가 목표 쪽으로 제자리 회전을
@@ -442,7 +459,7 @@ class Mission:
                     common.distance(*pose[:2], *self.goal) > config.FOLLOW_GOAL_TOLERANCE:
                 self._fail_goal("경로는 끝났는데 목표에 못 닿았다")
             elif self.goal is not None and \
-                    exploration.frontier_near(self.grid, *self.goal):
+                    exploration.frontier_near(self.plan_grid, *self.goal):
                 self._fail_goal("도착했는데 프론티어가 그대로다")
             else:
                 self.status = f"목표 도착 ({self.goal[0]:+.2f}, {self.goal[1]:+.2f})"
@@ -495,7 +512,7 @@ class Mission:
         # 가는 동안 LiDAR 가 그 근처를 다 봐 버렸을 수 있다.
         # 그러면 굳이 거기까지 갈 이유가 없다 — 실패가 아니라 "목적 달성" 이다.
         # 이 확인이 없으면 벽 앞까지 기어가서 멈췄다 기다렸다를 무한 반복한다.
-        if not exploration.frontier_near(self.grid, *self.goal):
+        if not exploration.frontier_near(self.plan_grid, *self.goal):
             _tally("교체: 주변을 이미 다 봤다")
             self.status = "목표 주변을 이미 다 봤다 — 다음 목표로"
             self._clear_goal()
@@ -567,7 +584,7 @@ class Mission:
             self._replan(pose)
 
         if self._since_replan >= config.MISSION_REPLAN_EVERY \
-                or planner.path_is_blocked(self.path, self.grid):
+                or planner.path_is_blocked(self.path, self.plan_grid):
             self._replan(pose)
 
         if not self.path:
@@ -579,7 +596,7 @@ class Mission:
         speed, turn, status, self.path_index = follower.step(
             pose, self.path, ranges, self.path_index,
             current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
-            allow_idle=self._person_is_close(pose), people=self._people)
+            allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
 
         # ⚠️ 주행기가 "경로 끝에 왔다" 고 하는데 목표물은 아직 멀다면, 계획기가
         #    더 가까이 데려다 줄 수 없다는 뜻이다 (목표물이 벽에 붙어 있으면
@@ -688,7 +705,7 @@ class Mission:
                     #    단서는 근거가 다르므로 **이 경우에만** 미탐색 통과를
                     #    허용한다. (사용자 지적: "검출했으면 그쪽으로 가는 게 맞지
                     #    않아? 길은 뚫려 있다는 것이잖아.")
-                    self.path = planner.plan(self.grid, pose[:2], spot,
+                    self.path = planner.plan(self.plan_grid, pose[:2], spot,
                                              allow_unknown=True,
                                              people=self._people_xy) or []
                 if self.path:
@@ -701,12 +718,12 @@ class Mission:
 
         if self._targets_missing() and self._start_sweep(pose):
             return
-        if self.targets.confirmed:
-            self.state = RETURN
-            self.status = "할 일을 마쳤다 — 시작 지점으로 복귀"
-        else:
-            self.state = DONE
-            self.status = "DONE — 목표물을 못 찾았다"
+        # ⚠️ 목표물을 못 찾았어도 **돌아온다.** 과제는 "찾아가서 시작점으로 돌아오기" 다.
+        #    예전에는 그 자리에서 DONE 이었다 — apartment 에서 61초에 탐색을 포기하고
+        #    시작점에서 4.55 m 떨어진 곳에 선 채 끝났다 (9/30, 정밀 매칭 실행).
+        self.state = RETURN
+        self.status = ("할 일을 마쳤다 — 시작 지점으로 복귀" if self.targets.confirmed
+                       else "목표물을 못 찾았다 — 그래도 시작 지점으로 복귀")
 
     # ------------------------------------------------------------------
     # SWEEP — 지도는 다 그렸는데 목표물이 모자랄 때 몇 곳에서 둘러본다
@@ -752,8 +769,8 @@ class Mission:
            그리고 최소 버전이 open0 에서 목표물을 놓친 이유도 같다 —
            **갈 수 있는 카메라 미관측 칸 225개** 를 남기고 끝냈다.
         """
-        todo = (mapping.is_free(self.grid) & ~self.camera_seen
-                & ~planner.inflate(self.grid))
+        todo = (mapping.is_free(self.plan_grid) & ~self.camera_seen
+                & ~planner.inflate(self.plan_grid))
         rows, cols = np.nonzero(todo)
         if len(rows) == 0:
             return None
@@ -787,7 +804,7 @@ class Mission:
         order = np.argsort(np.hypot(xs - pose[0], ys - pose[1]))
         for k in order[:config.MISSION_SWEEP_TRIES]:
             spot = (float(xs[k]), float(ys[k]))
-            if planner.plan(self.grid, pose[:2], spot, exact=True):
+            if planner.plan(self.plan_grid, pose[:2], spot, exact=True):
                 return spot
         return None
 
@@ -803,7 +820,7 @@ class Mission:
             timed_out = self._goal_age > config.APPROACH_TIMEOUT
             if gap > config.FOLLOW_GOAL_TOLERANCE and not timed_out:
                 if self._since_replan >= config.MISSION_REPLAN_EVERY \
-                        or planner.path_is_blocked(self.path, self.grid):
+                        or planner.path_is_blocked(self.path, self.plan_grid):
                     self._replan(pose)
                 if not self.path:
                     # ⚠️ 여기서 "그 자리에서 둘러본다" 를 하고 있었다 (뺐다).
@@ -875,7 +892,7 @@ class Mission:
             self.goal = home
             self._replan(pose)
         if self._since_replan >= config.MISSION_REPLAN_EVERY \
-                or planner.path_is_blocked(self.path, self.grid):
+                or planner.path_is_blocked(self.path, self.plan_grid):
             self._replan(pose)
 
         if not self.path:
@@ -899,14 +916,14 @@ class Mission:
                     pose, self._retrace, ranges, self._retrace_index,
                     current_speed=self.last_speed, current_turn=self.last_turn,
                     dt=dt, allow_idle=self._person_is_close(pose),
-                    people=self._people)
+                    people=self._people + self._low_ghosts())
                 return speed, turn
             self.status = f"복귀 — 경로 없음, 직선 접근 ({gap:.2f} m 남음)"
             direct = [pose[:2], home]
             speed, turn, _, _ = follower.step(
                 pose, direct, ranges, 0,
                 current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
-            allow_idle=self._person_is_close(pose), people=self._people)
+            allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
             return speed, turn
 
         self._no_path_age = 0.0
@@ -915,11 +932,64 @@ class Mission:
         speed, turn, status, self.path_index = follower.step(
             pose, self.path, ranges, self.path_index,
             current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
-            allow_idle=self._person_is_close(pose), people=self._people)
+            allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
         self.status = f"RETURN — {status} ({gap:.2f} m 남음)"
         return speed, turn
 
     # ------------------------------------------------------------------
+
+    def _check_slip(self, pose, wheel_turn, dt):
+        """바퀴 회전과 나침반 회전이 어긋나면 미끄러지는 중이다 (config 의 설명 참고)."""
+        theta = pose[2]
+        if self._slip_theta is None or wheel_turn is None or dt <= 0.0:
+            self._slip_theta = theta
+            return
+        compass_turn = common.angle_diff(theta, self._slip_theta) / dt
+        self._slip_theta = theta
+        if not config.SLIP_ENABLED or self.state in (SCAN, DONE):
+            self._slip_for = 0.0
+            return
+        if abs(wheel_turn - compass_turn) > config.SLIP_TURN_DIFF:
+            self._slip_for += dt
+        else:
+            self._slip_for = 0.0
+        if self._slip_for >= config.SLIP_SECONDS:
+            _tally("미끄러짐 감지")
+            self._slip_for = 0.0
+            if config.SLIP_MARK_RADIUS > 0.0:
+                self.slip_spots.append(tuple(pose[:2]))
+            self.slip_count += 1
+            self._backup_left = max(self._backup_left, config.MISSION_BACKUP_SECONDS)
+            if self.goal is not None and self.state != RETURN:
+                self._fail_goal("미끄러짐")
+            self._refresh_plan_grid()
+
+    def _low_points(self):
+        """계획에서 피할 낮은 물체: 카메라로 본 것 + 확정한 목표물 (사과도 LiDAR 에 안 보인다)."""
+        if not config.LOW_OBSTACLES_ENABLED:
+            return []
+        return self.low.positions() + [t.position for t in self.targets.confirmed]
+
+    def _refresh_plan_grid(self):
+        """LiDAR 지도에 낮은 물체·미끄러진 자리를 벽으로 찍은 **사본**. LiDAR 지도는 그대로."""
+        marks = ([(p, config.LOW_OBSTACLE_RADIUS) for p in self._low_points()]
+                 + [(p, config.SLIP_MARK_RADIUS) for p in self.slip_spots])
+        if not marks:
+            self.plan_grid = self.grid
+            return
+        grid = self.grid.copy()
+        for (x, y), radius in marks:
+            span = common.to_cells(radius)
+            row, col = common.to_cell(x, y)
+            r0, r1 = max(0, row - span), min(grid.shape[0], row + span + 1)
+            c0, c1 = max(0, col - span), min(grid.shape[1], col + span + 1)
+            if r0 < r1 and c0 < c1:
+                grid[r0:r1, c0:c1] = config.LOG_ODDS_MAX
+        self.plan_grid = grid
+
+    def _low_ghosts(self):
+        """DWA 에 넘길 정지 장애물 (사람과 같은 형식 x, y, vx, vy, 확신)."""
+        return [(x, y, 0.0, 0.0, 99) for x, y in self._low_points()]
 
     def _why_no_goal(self, pose):
         """고를 후보가 없을 때, **그 순간** 의 사유를 찍는다 (한 번만).
@@ -932,11 +1002,11 @@ class Mission:
         if COUNT.get("포기 사유를 찍었다"):
             return
         _tally("포기 사유를 찍었다")
-        blocked = (planner.inflate(self.grid, config.PLANNER_INFLATION_MARGIN)
-                   | mapping.is_unknown(self.grid))
-        lumps = exploration.cluster(exploration.frontier_mask(self.grid))
+        blocked = (planner.inflate(self.plan_grid, config.PLANNER_INFLATION_MARGIN)
+                   | mapping.is_unknown(self.plan_grid))
+        lumps = exploration.cluster(exploration.frontier_mask(self.plan_grid))
         lines = [f"[포기] {self.elapsed:.1f}초, 빈칸 "
-                 f"{int(mapping.is_free(self.grid).sum())}, 덩어리 {len(lumps)}개"]
+                 f"{int(mapping.is_free(self.plan_grid).sum())}, 덩어리 {len(lumps)}개"]
         for row, col, size in lumps:
             cell = (row, col)
             spot = common.to_world(row, col)
@@ -950,8 +1020,8 @@ class Mission:
             x, y = common.to_world(*cell)
             moved = common.distance(x, y, *spot)
             gap = common.distance(x, y, *pose[:2])
-            ok = bool(planner.plan(self.grid, pose[:2], (x, y), exact=True))
-            tight = bool(planner.plan(self.grid, pose[:2], (x, y), exact=True,
+            ok = bool(planner.plan(self.plan_grid, pose[:2], (x, y), exact=True))
+            tight = bool(planner.plan(self.plan_grid, pose[:2], (x, y), exact=True,
                                       margin=config.PLANNER_SQUEEZE_MARGIN))
             banned = (self.blacklist is not None
                       and self.blacklist.contains(x, y))
@@ -974,7 +1044,7 @@ class Mission:
         """
         for _ in range(8):      # A* 가 실패하면 다음 후보로 몇 번 더 시도
             # 갈 수 있는 프론티어 중 경로가 가장 짧은 곳. 규칙은 이 하나다.
-            goal = exploration.choose(self.grid, pose[:2], self.blacklist)
+            goal = exploration.choose(self.plan_grid, pose[:2], self.blacklist)
             # ⚠️ 여기에도 "카메라가 안 본 곳" 검사를 뒀다가 **뺐다.** 프론티어가
             #    잠깐 바닥날 때마다 발동해서, 정상 탐색이 곧 찾아낼 목표물까지
             #    가로채고 방을 한 번 더 훑었다. 이득 없이 시간만 먹는다:
@@ -1008,6 +1078,15 @@ class Mission:
             self.status = "블랙리스트를 비우고 다시 시도"
             return self._pick_goal(pose)
 
+        # ⚠️ 미끄러진 자리 표시가 통로를 막아 탐색을 포기하는 일이 있었다 (카펫 서쪽 가장자리
+        #    3곳 → 폭 1 m 띠, 307초에 미탐색 29곳 전부 '갈 수 없음'). 포기하기 전에 풀어 본다.
+        if config.SLIP_CLEAR_BEFORE_GIVEUP and self.slip_spots:
+            self.slip_spots = []
+            self._refresh_plan_grid()
+            self.blacklist.clear()
+            self.status = "미끄러진 자리 표시를 풀고 다시 시도"
+            return self._pick_goal(pose)
+
         return False
 
     def _frontiers_remain(self, pose):
@@ -1023,7 +1102,7 @@ class Mission:
            그래서 목록을 따로 계산하지 않고 **choose() 에게 직접 묻는다.**
            실제로 목표를 고르는 논리와 같은 답이 나와야 하기 때문이다.
         """
-        return exploration.choose(self.grid, pose[:2],
+        return exploration.choose(self.plan_grid, pose[:2],
                                   blacklist=None) is not None
 
     def _replan(self, pose):
@@ -1051,10 +1130,10 @@ class Mission:
         # ⚠️ "평소 여유로 안 되면 좁은 여유로 한 번 더". 연습 16월드로 기각했다가 대회형
         #    apartment 에서 되살렸다 (exploration.candidate_list 의 주석 참고) —
         #    후보 선택과 **같은 규칙** 이어야 한다.
-        found = planner.plan(self.grid, pose[:2], self.goal,
+        found = planner.plan(self.plan_grid, pose[:2], self.goal,
                              people=self._people_xy)
         if not found:
-            found = planner.plan(self.grid, pose[:2], self.goal,
+            found = planner.plan(self.plan_grid, pose[:2], self.goal,
                                  margin=config.PLANNER_SQUEEZE_MARGIN,
                                  people=self._people_xy)
             self.squeezing = bool(found)
@@ -1131,7 +1210,7 @@ class Mission:
         if (self._home_gap is None
                 or self._ticks - self._home_gap_tick
                 >= config.MISSION_RETURN_RECHECK):
-            path = planner.plan(self.grid, pose[:2], home)
+            path = planner.plan(self.plan_grid, pose[:2], home)
             self._home_gap = (
                 sum(common.distance(*a, *b) for a, b in zip(path, path[1:]))
                 if path else common.distance(pose[0], pose[1], *home))
@@ -1171,7 +1250,7 @@ class Mission:
 
     def frontier_points(self):
         """화면 표시용."""
-        return exploration.frontier_points(self.grid)
+        return exploration.frontier_points(self.plan_grid)
 
     def target_points(self):
         """화면 표시용 — 확인된 목표물 좌표 (발견한 것 전부)."""

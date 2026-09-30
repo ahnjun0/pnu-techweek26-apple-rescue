@@ -124,6 +124,56 @@ def camera_range(box, width, height, fov):
     return d_size, d_ground
 
 
+def floor_position(bottom_row, centre_col, pose, width, height, fov):
+    """영상에서 바닥에 닿은 점(밑동 행, 가운데 열) → 월드 좌표. 수평선 위면 None.
+
+    거리는 camera_range 의 "바닥" 식과 같다: d = CAMERA_HEIGHT / tan(내려본 각).
+    """
+    focal = (width / 2.0) / math.tan(fov / 2.0)
+    below = math.atan((bottom_row - (height - 1) / 2.0) / focal)
+    if below <= 0.0:
+        return None
+    distance = config.CAMERA_HEIGHT / math.tan(below)
+    if distance > config.LOW_MAX_RANGE:
+        return None
+    bearings = column_bearings(width, fov)
+    bearing = float(np.interp(centre_col, np.arange(len(bearings)), bearings))
+    x0, y0, theta = pose
+    cam_x = x0 + config.CAMERA_FORWARD * math.cos(theta)
+    cam_y = y0 + config.CAMERA_FORWARD * math.sin(theta)
+    return (cam_x + distance * math.cos(theta + bearing),
+            cam_y + distance * math.sin(theta + bearing))
+
+
+class LowObstacles:
+    """LiDAR 에 안 보이는 낮은 물체의 위치 목록 (config 의 '낮은 물체' 설명 참고)."""
+
+    def __init__(self):
+        self.points = []          # [[x, y, 본 횟수], ...]
+
+    def add(self, x, y):
+        for p in self.points:
+            if math.hypot(p[0] - x, p[1] - y) <= config.LOW_MERGE_RADIUS:
+                p[2] += 1
+                p[0] += (x - p[0]) / p[2]
+                p[1] += (y - p[1]) / p[2]
+                return
+        self.points.append([x, y, 1])
+
+    def positions(self):
+        return [(p[0], p[1]) for p in self.points if p[2] >= config.LOW_MIN_SIGHTINGS]
+
+
+def yolo_low_obstacles(detections, pose, width, height, fov, low_list):
+    """YOLO 결과 중 바닥의 작은 물체를 low_list 에 넣는다."""
+    for x1, y1, x2, y2, label, _ in detections:
+        if label not in config.YOLO_LOW_CLASSES:
+            continue
+        spot = floor_position(y2 - 0.5, (x1 + x2) / 2.0, pose, width, height, fov)
+        if spot is not None:
+            low_list.add(*spot)
+
+
 # 관찰용 계수기 — YOLO 가 몇 번 받고, 버리고, 못 봤는지 (결정에는 쓰지 않는다)
 YOLO_COUNT = {}
 
@@ -146,7 +196,8 @@ def yolo_verdict(box, detections):
     return "unknown"
 
 
-def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=None):
+def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=None,
+                 low_list=None):
     """카메라만으로 목표물 위치를 낸다 (DETECT_RANGING == "camera").
 
     classify 를 주면 모양 검사를 통과한 덩어리에 한해 YOLO 에 묻는다 (한 장에 한 번).
@@ -166,6 +217,12 @@ def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=Non
                 lead_list.add(pose, bearing)
             rejected += 1
             continue
+        if low_list is not None:
+            # 바닥에 닿은 빨간 것은 사과든 캔이든 **부딪히면 안 되는 물체** 다.
+            # ⚠️ 모양 검사보다 **먼저** 적는다 — 누운 캔은 모양 검사에서 걸러지기 때문이다.
+            spot = floor_position(box["top"] + box["h"] - 0.5, box["cx"], pose, width, height, fov)
+            if spot is not None:
+                low_list.add(*spot)
         if box["h"] > config.DETECT_MAX_ASPECT * box["w"]:
             rejected += 1                    # 세로로 길다 (소화기 등)
             continue
@@ -463,7 +520,8 @@ def position_is_sane(x, y, grid=None):
     return bool(common.in_bounds(row, col))
 
 
-def scan(image_bgr, ranges, pose, fov, target_list, lead_list=None, classify=None):
+def scan(image_bgr, ranges, pose, fov, target_list, lead_list=None, classify=None,
+         low_list=None):
     """영상 한 장을 훑어 목표물 목록을 갱신한다.
 
     돌려주는 것: (이번에 위치까지 알아낸 탐지 수, 버린 탐지 수)
@@ -475,7 +533,7 @@ def scan(image_bgr, ranges, pose, fov, target_list, lead_list=None, classify=Non
     if image_bgr is None:
         return 0, 0
     if config.DETECT_RANGING == "camera":
-        return _scan_camera(image_bgr, pose, fov, target_list, lead_list, classify)
+        return _scan_camera(image_bgr, pose, fov, target_list, lead_list, classify, low_list)
 
     placed = 0
     rejected = 0
