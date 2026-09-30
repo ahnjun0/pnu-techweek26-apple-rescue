@@ -570,3 +570,125 @@ def test_camera_scan_rejects_a_flat_red_object(monkeypatch):
     placed, _ = detect.scan(img, np.full(360, 5.0), (0.0, 0.0, 0.0), 1.0472,
                             detect.TargetList())
     assert placed == 0
+
+
+# --- 모양(곡률)·접지·높이·색 — 빨간 사과만 남기기 --------------------------------
+
+def _floor_row(distance, height_above_floor, height=480, fov=1.0472, width=640):
+    """바닥에서 height_above_floor [m] 높이, 거리 distance 에 있는 점의 화면 행."""
+    focal = (width / 2.0) / math.tan(fov / 2.0)
+    return (height - 1) / 2.0 + focal * (config.CAMERA_HEIGHT - height_above_floor) / distance
+
+
+def _scan_one(img):
+    targets = detect.TargetList()
+    placed, _ = detect.scan(img, np.full(360, 5.0), (0.0, 0.0, 0.0), 1.0472, targets)
+    return placed
+
+
+@pytest.fixture
+def camera_mode(monkeypatch):
+    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
+    detect.REJECT_COUNT.clear()
+
+
+@pytest.mark.parametrize("d", [0.6, 1.0, 1.5, 2.0, 2.5])
+def test_red_apple_passes_every_new_check(camera_mode, d):
+    """진짜 사과(바닥 위 지름 10 cm 공)는 어느 거리에서도 모양·접지·높이 검사를 통과한다."""
+    img = _apple_image(d)
+    box = detect.blob_boxes(img)[0]
+    assert detect.looks_round(box) is None, (d, box)
+    assert _scan_one(img) == 1, (d, detect.REJECT_COUNT)
+
+
+def test_standing_can_seen_side_on_is_not_round(camera_mode):
+    """사과 비율(1:1)로 보이는 직사각형(비스듬히 본 캔 등)은 밑면이 평평해서 거른다.
+
+    (원형도는 0.79 로 문턱 0.75 를 넘는다 — 상자를 거르는 것은 밑면 검사다.)
+    """
+    import cv2
+    d = 1.0
+    img = np.zeros((480, 640, 3), np.uint8)
+    bottom = int(round(_floor_row(d, 0.0)))
+    side = 60                                  # 1:1 — 세로/가로 검사로는 못 거른다
+    cv2.rectangle(img, (290, bottom - side), (290 + side, bottom), (0, 0, 255), -1)
+    box = detect.blob_boxes(img)[0]
+    assert detect.looks_round(box) in ("둥글지 않다", "밑면이 평평하다"), box
+    assert _scan_one(img) == 0
+
+
+def test_lying_can_with_white_letters_is_one_flat_blob(camera_mode):
+    """흰 글씨로 조각난 누운 캔은 닫기(close)로 한 덩어리가 되어 '가로로 길다' 로 빠진다.
+
+    ⚠️ 닫지 않으면 글씨 사이의 작은 빨간 조각이 제각각 사과 후보가 된다.
+    """
+    import cv2
+    d = 1.0
+    img = np.zeros((480, 640, 3), np.uint8)
+    bottom = int(round(_floor_row(d, 0.0)))
+    cv2.rectangle(img, (250, bottom - 37), (318, bottom), (0, 0, 255), -1)   # 0.123 x 0.066 m
+    for x in range(258, 312, 9):                                             # 흰 글씨 줄
+        cv2.rectangle(img, (x, bottom - 30), (x + 2, bottom - 8), (255, 255, 255), -1)
+    boxes = detect.blob_boxes(img)
+    assert len(boxes) == 1, [(b["w"], b["h"]) for b in boxes]
+    assert detect.looks_round(boxes[0]) == "가로로 길다"
+    assert _scan_one(img) == 0
+
+
+def test_soccer_ball_is_too_tall_to_be_an_apple(camera_mode):
+    """바닥에 놓인 둥근 축구공(지름 0.225 m)은 둥글고 밑도 좁지만 크기로 빠진다.
+
+    크기-바닥 거리 검사가 먼저 걸고(0.225 를 0.10 으로 가정하면 거리가 어긋난다),
+    그걸 통과하더라도 높이 검사(0.22 m > DETECT_HEIGHT_MAX)가 한 번 더 건다.
+    """
+    import cv2
+    d = 1.5
+    radius = 0.1125
+    focal = 320 / math.tan(1.0472 / 2)
+    img = np.zeros((480, 640, 3), np.uint8)
+    centre = int(round(_floor_row(d, radius)))
+    cv2.circle(img, (320, centre), int(round(focal * radius / d)), (0, 0, 255), -1)
+    box = detect.blob_boxes(img)[0]
+    assert detect.looks_round(box) is None, "전제: 모양으로는 공과 같다"
+    assert _scan_one(img) == 0
+    m = detect.camera_range(box, 640, 480, 1.0472)
+    assert detect.object_height(box, m[1], 640, 1.0472) > config.DETECT_HEIGHT_MAX
+
+
+def test_red_apple_on_a_table_is_not_on_the_floor(camera_mode):
+    """식탁 위(0.8 m) 과일 그릇의 빨간 사과는 밑동이 수평선 위라 버린다."""
+    import cv2
+    img = np.zeros((480, 640, 3), np.uint8)
+    cv2.circle(img, (320, 150), 12, (0, 0, 255), -1)
+    assert _scan_one(img) == 0
+    assert detect.REJECT_COUNT.get("바닥에 안 놓였다") == 1
+
+
+@pytest.mark.parametrize("name, bgr", [
+    ("주황 사과 (1, 0.73, 0)", (0, 186, 255)),
+    ("초록 사과", (40, 200, 60)),
+    ("보라 사과 (0.56, 0, 1)", (255, 0, 143)),
+])
+def test_other_apple_colours_are_not_red(name, bgr):
+    patch = np.zeros((40, 40, 3), np.uint8)
+    patch[:, :] = bgr
+    assert detect.red_mask(patch).sum() == 0, name
+
+
+@pytest.mark.parametrize("d", [0.5, 0.8, 1.5])
+def test_apple_with_a_stem_is_still_round(camera_mode, d):
+    """사과 꼭지(가늘고 빨갛게 위로 튀어나온 것)가 원형도를 깎아 진짜 사과를 버렸다.
+
+    ⚠️ 회귀 방지. 실제 녹화(apartment 빨간 사과 2, 0.43~1.6 m)에서 꼭지째 재면
+       원형도 0.61~0.76 — 문턱 0.75 에 가까이 있는 사과가 전부 떨어졌다.
+    """
+    import cv2
+    img = _apple_image(d)
+    box = detect.blob_boxes(img)[0]
+    stem_w = max(2, box["w"] // 12)
+    cx = box["left"] + box["w"] // 2
+    cv2.rectangle(img, (cx, box["top"] - box["h"] // 6), (cx + stem_w, box["top"] + 2),
+                  (0, 0, 255), -1)
+    box = detect.blob_boxes(img)[0]
+    assert box["circularity"] >= config.DETECT_MIN_CIRCULARITY, box
+    assert _scan_one(img) == 1, detect.REJECT_COUNT

@@ -76,27 +76,88 @@ def blobs(image_bgr, fov):
     return found
 
 
+def shape_features(component):
+    """덩어리 하나(상자 크기로 잘라 낸 0/255 마스크)의 모양 수치.
+
+    돌려주는 것: (원형도, 밑면 폭 비율)
+      원형도      = 4π·넓이 / 둘레²  — 원 1.0, 정사각형 0.785, 2:1 직사각형 0.70.
+                    바깥 윤곽만 쓴다. 사과 가운데 반사광(채도가 낮아 마스크에서 빠진다)이
+                    구멍을 내도 값이 흔들리지 않는다.
+      밑면 폭 비율 = 아래쪽 DETECT_BOTTOM_BAND 안에서 가장 넓은 줄 / 상자 폭.
+                    공은 바닥에 한 점으로 닿으므로 밑이 좁다 (띠 0.15 에서 원은 0.71).
+                    바닥에 선 캔·소화기, 누운 캔은 밑면 전체가 닿아 1.0 에 가깝다.
+
+    ⚠️ 재기 전에 **꼭지를 지운다** (열림 — 덩어리 크기의 DETECT_STEM_FRACTION).
+       사과 꼭지는 빨갛고 가늘게 위로 튀어나와 둘레만 늘린다. 실제 녹화(apartment,
+       빨간 사과 2)에서 꼭지째 재면 원형도가 0.61~0.76 이라 0.75 문턱에 진짜 사과가
+       절반쯤 떨어졌다 (가까울수록 심했다). 지우면 0.84~0.91 이다.
+       가까울수록 꼭지도 굵어지므로 커널을 덩어리 크기에 비례시킨다.
+    """
+    h0, w0 = component.shape[:2]
+    k = max(3, int(round(min(h0, w0) * config.DETECT_STEM_FRACTION))) | 1   # 홀수
+    opened = cv2.morphologyEx(component, cv2.MORPH_OPEN,
+                              cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    if opened.any():
+        component = opened
+    contours, _ = cv2.findContours(component, cv2.RETR_EXTERNAL,
+                                   cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return 0.0, 1.0
+    outline = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(outline)
+    perimeter = cv2.arcLength(outline, True)
+    circularity = 4.0 * math.pi * area / (perimeter * perimeter) if perimeter > 0 else 0.0
+
+    filled = np.zeros_like(component)
+    cv2.drawContours(filled, [outline], -1, 255, -1)
+    h, w = filled.shape[:2]
+    band = max(1, int(round(h * config.DETECT_BOTTOM_BAND)))
+    widest = int((filled[h - band:, :] > 0).sum(axis=1).max())
+    return float(circularity), widest / float(w)
+
+
 def blob_boxes(image_bgr):
     """빨간 덩어리를 **상자** 로 돌려준다 (카메라만으로 거리를 잴 때 쓴다).
 
-    [{area, cx, left, top, w, h, edge}, ...] 큰 것부터. edge 는 화면 가장자리에 잘렸는가
-    — 잘린 덩어리는 크기가 틀리므로 거리 계산에 쓰지 않는다.
+    [{area, cx, left, top, w, h, edge, circularity, bottom}, ...] 큰 것부터.
+    edge 는 화면 가장자리에 잘렸는가 — 잘린 덩어리는 크기가 틀리므로 거리 계산에 쓰지 않는다.
+    circularity·bottom 은 shape_features 설명 참고.
+
+    ⚠️ 마스크를 먼저 닫는다(close). 캔은 빨간 몸통에 흰 글씨가 있어 마스크가 여러
+       조각으로 끊긴다. 조각 하나하나는 작고 둥글어 사과처럼 보일 수 있다 — 붙여서
+       "캔 모양 한 덩어리" 로 봐야 모양 검사가 캔을 거른다.
     """
     mask = red_mask(image_bgr)
+    if config.DETECT_CLOSE_PIXELS > 1:
+        kernel = np.ones((config.DETECT_CLOSE_PIXELS, config.DETECT_CLOSE_PIXELS), np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
     height, width = mask.shape[:2]
-    count, _, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
+    count, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
     found = []
     for label in range(1, count):
         left, top, w, h, area = (int(v) for v in stats[label])
         if area < config.DETECT_MIN_BLOB_PIXELS:
             continue
+        component = ((labels[top:top + h, left:left + w] == label) * 255).astype(np.uint8)
+        circularity, bottom = shape_features(component)
         found.append({
             "area": area, "cx": float(centroids[label][0]),
             "left": left, "top": top, "w": w, "h": h,
             "edge": left <= 0 or top <= 0 or left + w >= width or top + h >= height,
+            "circularity": circularity, "bottom": bottom,
         })
     found.sort(key=lambda b: -b["area"])
     return found
+
+
+def object_height(box, distance, width, fov):
+    """덩어리의 **실제 높이** [m] — 화면 높이(픽셀) × 거리 / 초점거리.
+
+    사과는 지름 0.10 m 다. 소화기(0.5 m 이상)·축구공(지름 0.225 m)은 훨씬 크고,
+    캔 글씨 사이 조각은 훨씬 작다.
+    """
+    focal = (width / 2.0) / math.tan(fov / 2.0)
+    return box["h"] * distance / focal
 
 
 def camera_range(box, width, height, fov):
@@ -126,6 +187,35 @@ def camera_range(box, width, height, fov):
 
 # 관찰용 계수기 — YOLO 가 몇 번 받고, 버리고, 못 봤는지 (결정에는 쓰지 않는다)
 YOLO_COUNT = {}
+# 관찰용 계수기 — 카메라 검사가 **무슨 이유로** 버렸는지. 임계값을 고칠 때 이걸 본다.
+REJECT_COUNT = {}
+
+
+def _reject(reason):
+    REJECT_COUNT[reason] = REJECT_COUNT.get(reason, 0) + 1
+
+
+def looks_round(box):
+    """모양만 보고 "공(사과)일 수 있다" 인가. 아니면 버린 이유를 돌려준다, 맞으면 None.
+
+    순서대로 본다 (싼 것부터):
+      1. 세로/가로 — 세로로 길면 소화기, 가로로 길면 누운 캔.
+      2. 원형도(곡률) — 모서리가 있는 직사각형 윤곽은 원보다 둘레가 길다.
+      3. 밑면 폭 — 공은 밑이 좁고, 캔·소화기는 밑면이 통째로 바닥에 닿는다.
+    ⚠️ 2·3 은 덩어리가 작으면(멀면) 픽셀 계단 때문에 원도 각져 보인다.
+       DETECT_SHAPE_MIN_PIXELS 보다 작으면 건너뛴다 — 가까이 가면 다시 본다.
+    """
+    if box["h"] > config.DETECT_MAX_ASPECT * box["w"]:
+        return "세로로 길다"
+    if box["h"] < config.DETECT_MIN_ASPECT * box["w"]:
+        return "가로로 길다"
+    if min(box["w"], box["h"]) < config.DETECT_SHAPE_MIN_PIXELS:
+        return None
+    if box.get("circularity", 1.0) < config.DETECT_MIN_CIRCULARITY:
+        return "둥글지 않다"
+    if box.get("bottom", 0.0) > config.DETECT_MAX_BOTTOM_RATIO:
+        return "밑면이 평평하다"
+    return None
 
 
 def yolo_verdict(box, detections):
@@ -164,21 +254,28 @@ def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=Non
             # 잘려서 크기를 모른다 — 방위만 남기고 가까이 가서 다시 본다
             if lead_list is not None:
                 lead_list.add(pose, bearing)
+            _reject("화면 가장자리")
             rejected += 1
             continue
-        if box["h"] > config.DETECT_MAX_ASPECT * box["w"]:
-            rejected += 1                    # 세로로 길다 (소화기 등)
-            continue
-        if box["h"] < config.DETECT_MIN_ASPECT * box["w"]:
-            rejected += 1                    # 납작하다 (누운 캔 등)
+        why = looks_round(box)               # 소화기(세로)·캔(가로·평평한 밑면)
+        if why is not None:
+            _reject(why)
+            rejected += 1
             continue
         measured = camera_range(box, width, height, fov)
         if measured is None:
-            rejected += 1                    # 바닥에 안 놓였다 (선반 위 등)
+            _reject("바닥에 안 놓였다")        # 선반·식탁 위의 빨간 것
+            rejected += 1
             continue
         d_size, d_ground = measured
         if abs(d_size - d_ground) > config.DETECT_RANGE_AGREEMENT * d_ground:
-            rejected += 1                    # 사과 크기가 아니다 (소화기 등)
+            _reject("크기와 바닥 거리가 어긋난다")
+            rejected += 1
+            continue
+        tall = object_height(box, d_ground, width, fov)
+        if not config.DETECT_HEIGHT_MIN <= tall <= config.DETECT_HEIGHT_MAX:
+            _reject("높이가 사과가 아니다")   # 축구공·소화기(크다), 캔 글씨 조각(작다)
+            rejected += 1
             continue
         distance = (d_size + d_ground) / 2.0
         if distance > config.DETECT_MAX_RANGE:
