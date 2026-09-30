@@ -89,6 +89,8 @@ class Mission:
         self._slip_theta = None
         self.slip_spots = []        # 미끄러진 자리 (계획용 지도에 벽으로 찍는다)
         self.slip_count = 0         # 미끄러짐 감지 횟수 (표시를 풀어도 센다)
+        self._slip_times = []       # 각 표시를 찍은 시각 (SLIP_MARK_TTL)
+        self._giveup_retries = 0    # 포기 전 다시 스캔한 횟수 (GIVEUP_RESCANS)
         self.plan_grid = self.grid  # 계획용 지도 = LiDAR 지도 + 낮은 물체 (_refresh_plan_grid)
         self.target_count = config.MISSION_TARGET_COUNT
         # 둘러보기 (SWEEP)
@@ -413,6 +415,8 @@ class Mission:
                 # 더 볼 곳이 없다.
                 self._clear_goal()
                 self._decide_next(pose, exploring_possible=False)
+                return 0.0, 0.0
+            if self.state == SCAN:             # 포기 대신 다시 스캔하기로 했다
                 return 0.0, 0.0
 
         # --- 경로가 낡았으면 다시 계획 --------------------------------
@@ -958,6 +962,7 @@ class Mission:
             self._slip_for = 0.0
             if config.SLIP_MARK_RADIUS > 0.0:
                 self.slip_spots.append(tuple(pose[:2]))
+                self._slip_times.append(self.elapsed)
             self.slip_count += 1
             self._backup_left = max(self._backup_left, config.MISSION_BACKUP_SECONDS)
             if self.goal is not None and self.state != RETURN:
@@ -972,6 +977,11 @@ class Mission:
 
     def _refresh_plan_grid(self):
         """LiDAR 지도에 낮은 물체·미끄러진 자리를 벽으로 찍은 **사본**. LiDAR 지도는 그대로."""
+        if config.SLIP_MARK_TTL > 0.0 and self.slip_spots:
+            keep = [k for k, t in enumerate(self._slip_times)
+                    if self.elapsed - t < config.SLIP_MARK_TTL]
+            self.slip_spots = [self.slip_spots[k] for k in keep]
+            self._slip_times = [self._slip_times[k] for k in keep]
         marks = ([(p, config.LOW_OBSTACLE_RADIUS) for p in self._low_points()]
                  + [(p, config.SLIP_MARK_RADIUS) for p in self.slip_spots])
         if not marks:
@@ -1081,11 +1091,23 @@ class Mission:
         # ⚠️ 미끄러진 자리 표시가 통로를 막아 탐색을 포기하는 일이 있었다 (카펫 서쪽 가장자리
         #    3곳 → 폭 1 m 띠, 307초에 미탐색 29곳 전부 '갈 수 없음'). 포기하기 전에 풀어 본다.
         if config.SLIP_CLEAR_BEFORE_GIVEUP and self.slip_spots:
-            self.slip_spots = []
+            self.slip_spots, self._slip_times = [], []
             self._refresh_plan_grid()
             self.blacklist.clear()
             self.status = "미끄러진 자리 표시를 풀고 다시 시도"
             return self._pick_goal(pose)
+
+        # ⚠️ 탐색 초반에 "갈 수 있는 경계 없음" 으로 포기하는 일이 여러 번 있었다 (48초, 97초).
+        #    보행자가 지나간 자리의 가짜 벽이나 지도의 일시적인 틈 오차가 길을 막은 것이다.
+        #    포기하기 전에 제자리에서 한 바퀴 돌며(약 8초) 지도가 새로 고쳐질 시간을 준다.
+        if self._giveup_retries < config.GIVEUP_RESCANS and self._frontiers_remain(pose):
+            self._giveup_retries += 1
+            self.blacklist.clear()
+            self.state = SCAN
+            self._scanned = 0.0
+            self._last_theta = None
+            self.status = "갈 곳이 안 보여 한 바퀴 돌며 지도를 다시 본다"
+            return True
 
         return False
 
@@ -1136,6 +1158,10 @@ class Mission:
             found = planner.plan(self.plan_grid, pose[:2], self.goal,
                                  margin=config.PLANNER_SQUEEZE_MARGIN,
                                  people=self._people_xy)
+            if not found and config.PLANNER_TIGHT_MARGIN is not None:
+                found = planner.plan(self.plan_grid, pose[:2], self.goal,
+                                     margin=config.PLANNER_TIGHT_MARGIN,
+                                     people=self._people_xy)
             self.squeezing = bool(found)
         self.path = found or []
 

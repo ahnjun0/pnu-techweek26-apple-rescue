@@ -47,6 +47,7 @@ TIME_RATIO_SUSPECT = float(os.environ.get("SAR_TIME_RATIO", "3.0"))
 REPORT_EVERY = float(os.environ.get("SAR_REPORT_EVERY", "20.0"))
 #                       ^ [s] 이 주기로 한 줄 찍는다 (원인 추적 때 촘촘하게 본다)
 TIME_LIMIT = 900.0      # [s] 이만큼 지나면 포기하고 요약한다
+# (로봇의 MISSION_TIME_LIMIT 을 늘려 재는 경우에는 그보다 조금 더 기다린다 — main() 에서 맞춘다)
 ARENA_AREA = 36.0       # [m²] RectangleArena floorSize 6 6
 # "얼마나 빨리 탐색하나" 를 재려면 끝의 숫자 하나로는 모자란다. 진도가 필요하다.
 MILESTONES = (0.50, 0.70, 0.80, 0.90, 0.95)
@@ -403,9 +404,18 @@ def main():
 
     # ⚠️ Webots 를 닫거나 되돌리면 step() 이 -1 을 주고, **1초 뒤 강제 종료** 한다
     #    ("Forced termination … after 1 second"). 그때는 가벼운 기록만 먼저 남긴다.
+    global TIME_LIMIT
+    TIME_LIMIT = max(TIME_LIMIT, config.MISSION_TIME_LIMIT + 60.0)
     terminated = False
     next_tape_save = 60.0
     truth, pose = truth_src.xy(), odometry.pose   # 첫 틱 전에 닫혀도 progress 를 쓸 수 있게
+    # 발표용 시연 영상. SAR_MOVIE=경로.mp4 일 때만 3D 화면을 녹화한다 (Supervisor 전용 기능).
+    # 근거: Webots R2025a docs/reference/supervisor.md movieStartRecording — MP4 만, 화면 렌더링 필요
+    #       (--no-rendering 으로 띄우면 녹화할 화면이 없다).
+    movie = os.environ.get("SAR_MOVIE")
+    if movie:
+        robot.movieStartRecording(movie, 1280, 720, 0, 90, 1, False)
+        print(f"  영상 녹화 시작: {movie}")
     while True:
         if robot.step(timestep) == -1:
             terminated = True
@@ -667,6 +677,14 @@ def main():
         if brain.state == mission_mod.DONE or brain.elapsed > TIME_LIMIT:
             sensors.stop()
             break
+
+    if movie and not terminated:
+        robot.movieStopRecording()
+        while not robot.movieIsReady():          # 인코딩이 끝날 때까지 기다린다
+            if robot.step(timestep) == -1:
+                break
+        print("  영상:", "실패 (movieFailed)" if robot.movieFailed() else movie)
+        sys.stdout.flush()
 
     trace.close()
     write_progress(brain, truth, pose, worst_drift, movers, low_objects, timestep / 1000.0,

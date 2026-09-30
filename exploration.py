@@ -255,6 +255,9 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
             #    그리고 _replan 도 같은 규칙을 써야 한다 (한쪽만 넣었다가 maze0 이 3/3 -> 2/3).
             path = planner.plan(grid, robot_xy, (x, y), exact=True,
                                 margin=config.PLANNER_SQUEEZE_MARGIN)
+        if not path and config.PLANNER_TIGHT_MARGIN is not None:
+            path = planner.plan(grid, robot_xy, (x, y), exact=True,
+                                margin=config.PLANNER_TIGHT_MARGIN)
         if not path:
             continue
         # ⚠️ 첫 웨이포인트는 로봇이 **있는 칸의 중심** 이라 로봇 위치와 다르다.
@@ -264,7 +267,10 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
                   + sum(common.distance(*a, *b) for a, b in zip(path, path[1:])))
         scored.append(((x, y), length, size))
 
-    scored.sort(key=lambda item: item[1])
+    # 큰 경계(새 방 입구)를 가까운 작은 경계들 뒤로 밀지 않게 — 크기만큼 거리를 깎는다 (끔이 기본).
+    # ⚠️ 대회 조건 실행: 서쪽 방 입구 앞 131칸 경계를 끝까지 안 가고 작은 경계만 오가다 시간이 끝났다.
+    bonus = config.FRONTIER_SIZE_BONUS if config.FRONTIER_USE_SIZE else 0.0
+    scored.sort(key=lambda item: item[1] - bonus * item[2])
     return scored
 
 

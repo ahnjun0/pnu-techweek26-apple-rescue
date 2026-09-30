@@ -26,8 +26,24 @@ def rewrite(text, out_dir, missing):
         if not os.path.exists(target):
             missing.add(m.group(1))
             return m.group(0)
-        return '"' + os.path.relpath(target, out_dir) + '"'
+        return '"' + os.path.relpath(target, out_dir).replace(os.sep, "/") + '"'
     return REMOTE.sub(repl, text)
+
+
+# PROTO 안 JS 템플릿이 만드는 주소 ('webots://projects/...'). Webots 는 이걸 **설치 폴더** 에서
+# 찾는데 R2025a 설치본에는 에셋이 없다 — TexturedBackground 의 배경 조명 텍스처가 빠져
+# 카메라 색이 달라졌다 (9/30). 미러 안의 상대경로로 바꾼다.
+TEMPLATE = re.compile(r"'webots://(projects/[^']+)'")
+
+
+def rewrite_template(text, out_dir, missing):
+    def repl(m):
+        target = os.path.join(MIRROR, m.group(1))
+        if not os.path.exists(target):
+            missing.add(m.group(1))
+            return m.group(0)
+        return "'" + os.path.relpath(target, out_dir).replace(os.sep, "/") + "'"
+    return TEMPLATE.sub(repl, text)
 
 
 def mirror():
@@ -39,7 +55,7 @@ def mirror():
             path = os.path.join(root, name)
             with open(path, encoding="utf-8") as f:
                 old = f.read()
-            new = rewrite(old, root, missing)
+            new = rewrite_template(rewrite(old, root, missing), root, missing)
             if new != old:
                 with open(path, "w", encoding="utf-8") as f:
                     f.write(new)

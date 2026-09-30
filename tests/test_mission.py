@@ -923,3 +923,15 @@ def test_no_slip_when_the_compass_follows_the_wheels(monkeypatch):
         theta += 1.1 * dt                   # 나침반도 거의 같이 돈다 (비율 0.92)
         brain._check_slip((0.0, 0.0, theta), 1.2, dt)
     assert brain.slip_spots == []
+
+
+def test_rescans_instead_of_giving_up_while_frontiers_remain(monkeypatch):
+    """갈 수 있는 경계가 안 보여도 경계가 남아 있으면 포기 전에 한 바퀴 돌며 다시 본다."""
+    monkeypatch.setattr(config, "GIVEUP_RESCANS", 1)
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    monkeypatch.setattr(exploration, "choose", lambda *a, **k: None)
+    monkeypatch.setattr(brain, "_frontiers_remain", lambda pose: True)
+    assert brain._pick_goal((0.0, 0.0, 0.0)) is True
+    assert brain.state == mission.SCAN
+    assert brain._pick_goal((0.0, 0.0, 0.0)) is False, "횟수를 다 쓰면 포기한다"
