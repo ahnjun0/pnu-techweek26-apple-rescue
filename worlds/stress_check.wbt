@@ -1,0 +1,212 @@
+#VRML_SIM R2025a utf8
+
+# practice.wbt 와 똑같은 월드인데, 컨트롤러만 "mission_check" 다.
+#
+# sar_controller 와 완전히 같은 판단 코드를 돌리되, GPS 로 진짜 위치를 곁눈질해서
+#   - 오도메트리가 얼마나 틀어졌는지
+#   - 벽에 얼마나 가까웠는지 (충돌했는지)
+#   - 얼마나 넓게 탐색했는지
+# 를 숫자로 찍어 준다. GPS 는 재기만 하고 판단에는 쓰지 않는다 (CLAUDE.md 규칙 1).
+#
+# ⚠️ 벽·목표물·보행자를 고치면 practice.wbt 와 이 파일 둘 다 고쳐야 한다.
+
+# 연습용 탐색·구조 월드.
+# 6 m x 6 m 아레나 안에 벽으로 방·복도를 만들고, 빨간 목표 3개와 보행자 1명을 둔다.
+# 로봇 시작 위치는 config.START_X / START_Y / START_THETA 와 반드시 일치시킬 것.
+#
+# 좌표계: ENU, Z-up. x = 동, y = 북. (common.py 상단 규약 참고)
+# 내부 벽은 PROTO 대신 기본 Solid + Box 로 만들었다 — 원격 의존이 없고 편집이 쉽다.
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/robotis/turtlebot/protos/TurtleBot3Burger.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/devices/robotis/protos/RobotisLds01.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/humans/pedestrian/protos/Pedestrian.proto"
+
+WorldInfo {
+  info [
+    "Generality stress arena"
+  ]
+  # ⚠️ basicTimeStep 이 크면 보행자(physics 없는 운동학 물체)가 한 스텝에
+  #    로봇을 깊이 관통하고, 솔버가 그걸 튕겨 내면서 로봇이 아레나 밖으로 날아간다.
+  #    32 -> 16 으로 줄여 스텝당 관통량을 절반으로 만든다.
+  #    컨트롤러 주기(config.TIME_STEP = 32)는 이 값의 배수라 그대로 쓴다.
+  basicTimeStep 16
+  title "SAR 일반성 시험 (크기 다른 장애물)"
+}
+Viewpoint {
+  orientation -0.28 0.30 0.91 1.63
+  position 0.2 -0.4 12.5
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 6 6
+  floorTileSize 0.5 0.5
+  wallThickness 0.05
+  wallHeight 0.5
+}
+
+# --------------------------------------------------------------------------
+# ⚠️ 이 월드는 "일반성 시험" 용이다. practice.wbt 와 일부러 다르게 만들었다.
+#    우리 설정이 연습 맵 하나에만 맞춰진 것인지 드러내려는 것이다.
+#      - 벽 배치가 다르다 (좁은 문 하나 포함: HC 와 VA 사이 0.85 m)
+#      - 보행자가 둘이고 서로 다른 방향·속도로 다닌다
+#      - 목표물 셋이 전부 다른 자리에 있다 (둘은 구석)
+#    기하학은 미리 검증했다: 시작점에서 닿는 면적 19.2 m², 목표물 3/3 도달 가능
+#    (연습 월드는 17.4 m²). 검증 코드는 tests/test_world_geometry.py 와 같은 방식.
+# --------------------------------------------------------------------------
+
+DEF VA Solid {
+  translation -1.0 -0.6 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.62 roughness 0.6 metalness 0 }
+      geometry Box { size 0.1 2.0 0.5 }
+    }
+  ]
+  name "va"
+  boundingObject Box { size 0.1 2.0 0.5 }
+}
+
+DEF VB Solid {
+  translation 1.0 1.3 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.62 roughness 0.6 metalness 0 }
+      geometry Box { size 0.1 3.4 0.5 }
+    }
+  ]
+  name "vb"
+  boundingObject Box { size 0.1 3.4 0.5 }
+}
+
+DEF HA Solid {
+  translation 0.0 0.4 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.62 roughness 0.6 metalness 0 }
+      geometry Box { size 2.0 0.1 0.5 }
+    }
+  ]
+  name "ha"
+  boundingObject Box { size 2.0 0.1 0.5 }
+}
+
+DEF HC Solid {
+  translation -2.45 1.6 0.25
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.6 0.6 0.62 roughness 0.6 metalness 0 }
+      geometry Box { size 1.1 0.1 0.5 }
+    }
+  ]
+  name "hc"
+  boundingObject Box { size 1.1 0.1 0.5 }
+}
+
+DEF TARGET_1 Solid {
+  translation -2.4 2.5 0.2
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 1 0 0 roughness 0.4 metalness 0 }
+      geometry Cylinder { radius 0.08 height 0.4 }
+    }
+  ]
+  name "target 1"
+  boundingObject Cylinder { radius 0.08 height 0.4 }
+}
+
+DEF TARGET_2 Solid {
+  translation 2.5 -2.6 0.2
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 1 0 0 roughness 0.4 metalness 0 }
+      geometry Cylinder { radius 0.08 height 0.4 }
+    }
+  ]
+  name "target 2"
+  boundingObject Cylinder { radius 0.08 height 0.4 }
+}
+
+DEF TARGET_3 Solid {
+  translation 0.4 2.4 0.2
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 1 0 0 roughness 0.4 metalness 0 }
+      geometry Cylinder { radius 0.08 height 0.4 }
+    }
+  ]
+  name "target 3"
+  boundingObject Cylinder { radius 0.08 height 0.4 }
+}
+
+DEF PEDESTRIAN1 Pedestrian {
+  translation -2.6 -1.4 1.27
+  name "pedestrian1"
+  controllerArgs [
+    "--trajectory=-2.6 -1.4, 2.6 -1.4"
+    "--speed=0.5"
+  ]
+  enableBoundingObject TRUE
+}
+
+DEF SMALLMOVER Robot {
+  translation 0.6 2.8 0.25
+  name "smallmover"
+  controller "mover"
+  controllerArgs [
+    "--trajectory=0.6 2.8, 0.6 0.9"
+    "--speed=0.5"
+  ]
+  supervisor TRUE
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.9 0.5 0.1 roughness 0.5 metalness 0 }
+      geometry Cylinder { radius 0.07 height 0.5 }
+    }
+  ]
+  boundingObject Cylinder { radius 0.07 height 0.5 }
+}
+
+DEF BIGMOVER Robot {
+  translation 2.6 1.0 0.35
+  name "bigmover"
+  controller "mover"
+  controllerArgs [
+    "--trajectory=2.6 1.0, 2.6 2.8"
+    "--speed=0.3"
+  ]
+  supervisor TRUE
+  children [
+    Shape {
+      appearance PBRAppearance { baseColor 0.2 0.4 0.9 roughness 0.5 metalness 0 }
+      geometry Cylinder { radius 0.15 height 0.7 }
+    }
+  ]
+  boundingObject Cylinder { radius 0.15 height 0.7 }
+}
+
+TurtleBot3Burger {
+  translation -2.5 -2.5 0
+  rotation 0 0 1 0
+  controller "mission_check"
+  # ⚠️ 검증 전용. 사람과의 "진짜" 거리를 재려면 Supervisor 가 필요하다.
+  #    LiDAR 최근접은 LIDAR_MIN_RANGE(0.12 m)에 붙어 버려서 정보가 없다.
+  #    worlds/practice.wbt(실전용)에는 이 줄이 없다. CLAUDE.md 규칙 1.
+  supervisor TRUE
+  extensionSlot [
+    RobotisLds01 {
+    }
+    Camera {
+      translation 0.02 0 0.06
+      name "camera"
+      fieldOfView 1
+      width 128
+      height 96
+    }
+  ]
+}

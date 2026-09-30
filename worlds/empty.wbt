@@ -1,0 +1,53 @@
+#VRML_SIM R2025a utf8
+
+# 검증 전용 빈 월드 — 벽(아레나 테두리)만 있고 장애물이 없다.
+# 로봇 controller 는 "odometry_check" 로 되어 있다 (Phase 1 검증용).
+# 용도 1: 오도메트리 검증 (Phase 1) — 직진 1 m, 360도 회전, 정사각형 주행
+# 용도 2: LiDAR 인덱스 방향 확인 (Phase 2) — 상자를 정면/왼쪽에 놓고 측정
+#
+# 로봇은 원점에서 +x 를 바라보고 시작한다 (practice.wbt 와 다르다. 의도된 것이다).
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/robotis/turtlebot/protos/TurtleBot3Burger.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/devices/robotis/protos/RobotisLds01.proto"
+
+WorldInfo {
+  info [
+    "Empty arena for odometry and LiDAR orientation checks"
+  ]
+  title "SAR empty"
+  basicTimeStep 32
+}
+Viewpoint {
+  orientation -0.28 0.30 0.91 1.63
+  position 0.2 -0.4 10
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 6 6
+  floorTileSize 0.5 0.5
+  wallThickness 0.05
+  wallHeight 0.5
+}
+TurtleBot3Burger {
+  translation 0 0 0
+  rotation 0 0 1 0
+  controller "odometry_check"
+  supervisor TRUE   # 정답 위치(debug/truth.py) — 채점 전용
+  extensionSlot [
+    RobotisLds01 {
+    }
+    Camera {
+      translation 0.02 0 0.06
+      name "camera"
+      fieldOfView 1
+      width 128
+      height 96
+    }
+  ]
+}

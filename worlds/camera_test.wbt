@@ -1,0 +1,182 @@
+#VRML_SIM R2025a utf8
+
+# 카메라와 LiDAR 가 같은 것을 보고 있는지 확인하는 전용 월드 (Phase 5 준비).
+#
+# 일부러 "카메라에는 보이는데 LiDAR 에는 안 잡히는" 물체들을 섞어 놓았다.
+#   LiDAR 평면은 z = 0.173 m 한 층뿐이고, 사거리는 3.5 m 다.
+#   카메라는 z = 0.213 m 에서 수평 57°, 수직 45° 원뿔로 본다.
+#
+#   ⚠️ 방위각이 서로 겹치거나 화각 밖으로 나가지 않도록 배치했다.
+#      처음엔 B 를 (1.2, 0.8) = +33.7° 에 뒀는데 카메라 화각(±28.5°) 밖이라
+#      부호 검증이 엉뚱한 물체와 비교돼 "좌우가 뒤집혔다" 는 오진이 나왔다.
+#      E 도 A 뒤에 가려 안 보였다.
+#
+#   A 정면 기둥  (1.5, 0.00)   0.0°  높이 0.4  → 둘 다 본다
+#   B 왼쪽 기둥  (1.3, 0.55) +22.9°  높이 0.4  → 둘 다 본다 (좌우 부호 확인용)
+#   C 납작한 것  (1.0,-0.35) -19.3°  높이 0.10 → LiDAR 평면 아래. 카메라만 본다
+#   D 뜬 것      (2.0, 0.35)  +9.9°  z 0.5~0.7 → LiDAR 평면 위. 카메라만 본다
+#   E 먼 기둥    (4.5,-0.55)  -7.0°  높이 0.4  → LiDAR 사거리 밖. 카메라만 본다
+#   F 회색 상자  (2.0,-1.20) -31.0°  높이 0.4  → 화각 밖. LiDAR 만 본다
+#
+# 아레나를 10 x 10 으로 넓힌 것은 E 를 LiDAR 사거리 밖에 두기 위해서다.
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/robotis/turtlebot/protos/TurtleBot3Burger.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/devices/robotis/protos/RobotisLds01.proto"
+
+WorldInfo {
+  title "camera vs lidar"
+  basicTimeStep 32
+}
+Viewpoint {
+  orientation -0.30 0.32 0.90 1.60
+  position 0.5 -0.5 9
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 10 10
+  floorTileSize 0.5 0.5
+  wallThickness 0.05
+  wallHeight 0.5
+}
+
+DEF A_FRONT Solid {
+  translation 1.5 0 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.08
+        height 0.4
+      }
+    }
+  ]
+  name "A front tall"
+  boundingObject Cylinder {
+    radius 0.08
+    height 0.4
+  }
+}
+DEF B_LEFT Solid {
+  translation 1.3 0.55 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.08
+        height 0.4
+      }
+    }
+  ]
+  name "B left tall"
+  boundingObject Cylinder {
+    radius 0.08
+    height 0.4
+  }
+}
+DEF C_SHORT Solid {
+  translation 1 -0.35 0.05
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Box {
+        size 0.16 0.16 0.1
+      }
+    }
+  ]
+  name "C short"
+  boundingObject Box {
+    size 0.16 0.16 0.1
+  }
+}
+DEF D_HIGH Solid {
+  translation 2 0.35 0.6
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.2
+      }
+    }
+  ]
+  name "D high"
+}
+DEF E_FAR Solid {
+  translation 4.5 -0.55 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.08
+        height 0.4
+      }
+    }
+  ]
+  name "E far"
+  boundingObject Cylinder {
+    radius 0.08
+    height 0.4
+  }
+}
+DEF F_GREY Solid {
+  translation 2 -1.2 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.6 0.6 0.6
+        roughness 0.8
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.4
+      }
+    }
+  ]
+  name "F grey"
+  boundingObject Box {
+    size 0.2 0.2 0.4
+  }
+}
+
+TurtleBot3Burger {
+  translation 0 0 0
+  rotation 0 0 1 0
+  controller "camera_lidar_check"
+  supervisor TRUE   # 정답 위치(debug/truth.py) — 채점 전용
+  extensionSlot [
+    RobotisLds01 {
+    }
+    Camera {
+      translation 0.02 0 0.06
+      name "camera"
+      fieldOfView 1
+      width 128
+      height 96
+    }
+  ]
+}

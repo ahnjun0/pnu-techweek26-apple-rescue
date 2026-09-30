@@ -1,0 +1,38 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+worlds/.*.wbproj
+*.log
+debug/out/
+
+# debug/make_maze_world.py 가 만드는 월드들 — 언제든 재생성된다.
+# ⚠️ 손으로 만든 practice_check.wbt / stress_check.wbt 는 제외하지 않는다.
+worlds/maze*_check.wbt
+worlds/open*_check.wbt
+worlds/comb*_check.wbt
+worlds/corridor*_check.wbt
+worlds/rand*_check.wbt
+worlds/people_*_check.wbt
+
+# 대회 당일 실행 로그 (출력물이라 올리지 않는다)
+competition/02_runs/*
+!competition/02_runs/.keep
+
+# uv 가상환경 (uv sync 로 다시 만든다)
+.venv/
+competition/notebook/.venv/
+# 노트북 부산물
+competition/notebook/models/YOLO/*.pt
+competition/notebook/_실행확인.ipynb
+.ipynb_checkpoints/
+# 주최 측 repo — 자체 .git 이 있다. 대회 중 갱신되면 git -C ... pull 로 받는다
+competition/00_given/PNU-TECHWEEK-260930/
+# Webots R2025a 에셋 로컬 사본 (git sparse clone — 다시 받으면 된다)
+competition/webots_assets/
+
+# 비교 실험용 로컬 월드 (competition/localize_assets.py 로 다시 만든다)
+worlds/_local_*.wbt
+submission/worlds/_local_*.wbt
+
+# ./setup.sh 가 컴퓨터마다 만든다 (.venv 절대경로)
+controllers/*/runtime.ini

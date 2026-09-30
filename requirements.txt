@@ -1,0 +1,10 @@
+# ⚠️ 이제 uv 로 관리한다 (pyproject.toml + uv.lock). 이 파일은 옛 방식 참고용이다.
+#
+#   uv sync                 # 로봇(Webots) 환경 — .venv/
+#   uv sync --group yolo    # YOLO 까지
+#
+# 버전은 pyproject.toml 에 고정돼 있다 (시험 373개가 통과한 버전 그대로).
+numpy==2.2.6
+opencv-python==5.0.0.93
+matplotlib==3.10.9
+pytest==9.1.1

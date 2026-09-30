@@ -1,0 +1,261 @@
+#VRML_SIM R2025a utf8
+
+# 연습용 탐색·구조 월드.
+# 6 m x 6 m 아레나 안에 벽으로 방·복도를 만들고, 빨간 목표 3개와 보행자 1명을 둔다.
+# 로봇 시작 위치는 config.START_X / START_Y / START_THETA 와 반드시 일치시킬 것.
+#
+# 좌표계: ENU, Z-up. x = 동, y = 북. (common.py 상단 규약 참고)
+# 내부 벽은 PROTO 대신 기본 Solid + Box 로 만들었다 — 원격 의존이 없고 편집이 쉽다.
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/robotis/turtlebot/protos/TurtleBot3Burger.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/devices/robotis/protos/RobotisLds01.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/humans/pedestrian/protos/Pedestrian.proto"
+
+WorldInfo {
+  info [
+    "Search and Rescue practice arena"
+  ]
+  # ⚠️ basicTimeStep 이 크면 보행자(physics 없는 운동학 물체)가 한 스텝에
+  #    로봇을 깊이 관통하고, 솔버가 그걸 튕겨 내면서 로봇이 아레나 밖으로 날아간다.
+  #    32 -> 16 으로 줄여 스텝당 관통량을 절반으로 만든다.
+  #    컨트롤러 주기(config.TIME_STEP = 32)는 이 값의 배수라 그대로 쓴다.
+  basicTimeStep 16
+  title "SAR practice"
+}
+Viewpoint {
+  orientation -0.28 0.30 0.91 1.63
+  position 0.2 -0.4 12.5
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 6 6
+  floorTileSize 0.5 0.5
+  wallThickness 0.05
+  wallHeight 0.5
+}
+
+# --------------------------------------------------------------------------
+# 내부 벽 — 단순 사각형이 되지 않도록 방과 복도를 만든다.
+# 각 Solid 의 translation z = 0.25 는 높이 0.5 짜리 상자의 중심 (바닥에 닿게).
+# --------------------------------------------------------------------------
+
+# W1: x = -1.0 세로벽, y 는 -3.0 ~ 0.0. 위쪽(y > 0)이 뚫려 있어 그쪽이 출입구다.
+DEF W1 Solid {
+  translation -1 -1.5 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.75 0.72 0.68
+        roughness 0.9
+        metalness 0
+      }
+      geometry Box {
+        size 0.1 3 0.5
+      }
+    }
+  ]
+  name "wall W1"
+  boundingObject Box {
+    size 0.1 3 0.5
+  }
+}
+
+# W2: x = +1.0 세로벽, y 는 0.0 ~ 3.0. 아래쪽(y < 0)이 뚫려 있다.
+DEF W2 Solid {
+  translation 1 1.5 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.75 0.72 0.68
+        roughness 0.9
+        metalness 0
+      }
+      geometry Box {
+        size 0.1 3 0.5
+      }
+    }
+  ]
+  name "wall W2"
+  boundingObject Box {
+    size 0.1 3 0.5
+  }
+}
+
+# W3: y = 0.0 가로벽, x 는 2.0 ~ 3.0.
+# ⚠️ 원래 x 를 1.0 부터 시작했더니 W2(x=1, y 0~3) 와 만나서 오른쪽 위 방이 완전히
+#    밀폐됐고 목표물 2 번이 도달 불가능해졌다. x=1.05~1.6 의 0.55 m 짜리 문을 남겼다.
+#    (확인 방법: 아래 "연결성 확인" 참고)
+# ⚠️ 처음엔 문을 0.55 m 로 냈는데, 계획할 때 로봇 반경+여유(0.21 m)만큼 양쪽을
+#    부풀리고 나면 실제로 지나갈 폭이 0.13 m 밖에 안 남아 로봇이 문틀을 긁었다.
+#    0.95 m 로 넓혔다. 좁은 문이 필요하면 PLANNER_INFLATION_MARGIN 을 줄일 것.
+DEF W3 Solid {
+  translation 2.5 0 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.75 0.72 0.68
+        roughness 0.9
+        metalness 0
+      }
+      geometry Box {
+        size 1 0.1 0.5
+      }
+    }
+  ]
+  name "wall W3"
+  boundingObject Box {
+    size 1 0.1 0.5
+  }
+}
+
+# W4: y = -1.5 가로벽, x 는 -1.0 ~ 1.5. 아래 가운데에 막다른 방을 만든다.
+DEF W4 Solid {
+  translation 0.25 -1.5 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.75 0.72 0.68
+        roughness 0.9
+        metalness 0
+      }
+      geometry Box {
+        size 2.5 0.1 0.5
+      }
+    }
+  ]
+  name "wall W4"
+  boundingObject Box {
+    size 2.5 0.1 0.5
+  }
+}
+
+# 연결성 확인: tests/test_world_geometry.py 가 이 벽 좌표로 flood fill 해서
+# 목표 3개와 시작점이 서로 오갈 수 있는지 검사한다. 벽을 고치면 거기도 같이 고칠 것.
+
+# --------------------------------------------------------------------------
+# 목표 물체 — 빨간 원기둥 3개. 높이 0.4 m 이라 LiDAR 높이(z ~ 0.19)에서도 잡힌다.
+# 이름은 detect.py 가 아니라 사람이 보기 위한 것이다 (코드는 색으로만 찾는다).
+# --------------------------------------------------------------------------
+
+DEF TARGET_1 Solid {
+  translation -2.2 1.8 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.08
+        height 0.4
+      }
+    }
+  ]
+  name "target 1"
+  boundingObject Cylinder {
+    radius 0.08
+    height 0.4
+  }
+}
+
+DEF TARGET_2 Solid {
+  translation 2.3 2 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.08
+        height 0.4
+      }
+    }
+  ]
+  name "target 2"
+  boundingObject Cylinder {
+    radius 0.08
+    height 0.4
+  }
+}
+
+DEF TARGET_3 Solid {
+  translation 0.3 -2.4 0.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0 0
+        roughness 0.4
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.08
+        height 0.4
+      }
+    }
+  ]
+  name "target 3"
+  boundingObject Cylinder {
+    radius 0.08
+    height 0.4
+  }
+}
+
+# --------------------------------------------------------------------------
+# 보행자 — 복도(y = 0.8)를 좌우로 왕복한다.
+# ⚠️ 처음엔 y = 0.5 로 뒀는데, 그 선이 W1 벽 끝(-1, 0) 바로 옆을 지나가는 바람에
+#    보행자가 로봇을 벽 쪽으로 밀어 벽 속에 0.08 m 박아 넣었다. Pedestrian 은
+#    physics 가 없는(운동학) 물체라 로봇을 무한한 힘으로 민다.
+#    로봇이 피할 공간이 있는 곳으로 옮겼다.
+# ⚠️ 그 다음엔 y = 1.5 로 뒀는데, 목표물 1번(-2.2, 1.8)이 그 통로 바로 옆이라
+#    접근하다 보행자와 왼쪽 벽 사이에 끼였고, 물리 엔진이 로봇을 58만 km 밖으로
+#    날려 보냈다. 목표물·벽끝 어느 쪽과도 0.75 m 이상 떨어진 y = 0.8 로 옮겼다.
+# enableBoundingObject 를 TRUE 로 해야 LiDAR 와 충돌 판정에 잡힌다 (기본값은 FALSE).
+# --------------------------------------------------------------------------
+Pedestrian {
+  translation -2.4 0.8 1.27
+  name "pedestrian"
+  controllerArgs [
+    "--trajectory=-2.4 0.8, 0.4 0.8"
+    "--speed=0.4"
+  ]
+  enableBoundingObject TRUE
+}
+
+# --------------------------------------------------------------------------
+# 로봇.
+# ⚠️ extensionSlot 의 기본값이 [ RobotisLds01 { } ] 이므로, 센서를 추가할 때
+#    RobotisLds01 을 다시 써 주지 않으면 LiDAR 가 사라진다.
+# extensionSlot 자체는 로봇 기준 (-0.03, 0, 0.153) 에 놓여 있다
+#    (TurtleBot3Burger.proto:38). 아래 translation 은 그 위치 기준의 상대값이다.
+# ⚠️ Compass / Gyro / Accelerometer 는 PROTO 몸체에 이미 들어 있다
+#    (TurtleBot3Burger.proto:278-285, 이름은 각각 "compass" "gyro" "accelerometer").
+#    여기에 또 추가하면 이름이 충돌하므로 추가하지 않는다.
+# GPS 의 translation 0.03 0 -0.153 은 extensionSlot 오프셋을 정확히 되돌려서
+#    GPS 를 로봇 원점(= 바퀴축 중심, 오도메트리가 추적하는 바로 그 점)에 놓는 값이다.
+#    이래야 debug 의 오차 비교에 3 cm 짜리 가짜 오차가 섞이지 않는다.
+# --------------------------------------------------------------------------
+TurtleBot3Burger {
+  translation -2.5 -2.5 0
+  rotation 0 0 1 0
+  controller "sar_controller"
+  extensionSlot [
+    RobotisLds01 {
+    }
+    Camera {
+      translation 0.02 0 0.06
+      name "camera"
+      fieldOfView 1
+      width 128
+      height 96
+    }
+  ]
+}

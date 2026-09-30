@@ -1,0 +1,120 @@
+#VRML_SIM R2025a utf8
+
+# LiDAR 인덱스 방향 확인 전용 월드 (Phase 2).
+# 상자를 정면 / 왼쪽 / 오른쪽에 서로 다른 거리로 놓고, 배열의 몇 번 인덱스가
+# 어느 방향을 가리키는지, 인덱스가 늘면 어느 쪽으로 도는지 측정한다.
+# 결과는 config.LIDAR_ANGLE_OFFSET / LIDAR_ANGLE_SIGN 에 기록한다.
+#
+# (empty.wbt 에서 갈라져 나온 월드다)
+# 로봇은 원점에서 +x 를 바라보고 서 있기만 한다.
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/robotis/turtlebot/protos/TurtleBot3Burger.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/devices/robotis/protos/RobotisLds01.proto"
+
+WorldInfo {
+  info [
+    "Empty arena for odometry and LiDAR orientation checks"
+  ]
+  title "SAR lidar orientation"
+  basicTimeStep 32
+}
+Viewpoint {
+  orientation -0.28 0.30 0.91 1.63
+  position 0.2 -0.4 10
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  floorSize 6 6
+  floorTileSize 0.5 0.5
+  wallThickness 0.05
+  wallHeight 0.5
+}
+
+# --------------------------------------------------------------------------
+# LiDAR 인덱스 방향 확인용 상자 3개.
+# 로봇은 원점에서 +x 를 본다. 세 상자를 서로 다른 거리에 두어
+# "제일 가까운 것 = 정면" 식으로 구분할 수 있게 했다.
+#   정면(+x)   1.0 m  → 가까운 면 0.9 m
+#   왼쪽(+y)   1.5 m  → 가까운 면 1.4 m
+#   오른쪽(-y) 2.0 m  → 가까운 면 1.9 m
+# --------------------------------------------------------------------------
+DEF BOX_FRONT Solid {
+  translation 1 0 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.1 0.4 0.9
+        roughness 0.8
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.5
+      }
+    }
+  ]
+  name "box front"
+  boundingObject Box {
+    size 0.2 0.2 0.5
+  }
+}
+DEF BOX_LEFT Solid {
+  translation 0 1.5 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.1 0.8 0.3
+        roughness 0.8
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.5
+      }
+    }
+  ]
+  name "box left"
+  boundingObject Box {
+    size 0.2 0.2 0.5
+  }
+}
+DEF BOX_RIGHT Solid {
+  translation 0 -2 0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.9 0.6 0.1
+        roughness 0.8
+        metalness 0
+      }
+      geometry Box {
+        size 0.2 0.2 0.5
+      }
+    }
+  ]
+  name "box right"
+  boundingObject Box {
+    size 0.2 0.2 0.5
+  }
+}
+
+TurtleBot3Burger {
+  translation 0 0 0
+  rotation 0 0 1 0
+  controller "lidar_orientation"
+  extensionSlot [
+    RobotisLds01 {
+    }
+    Camera {
+      translation 0.02 0 0.06
+      name "camera"
+      fieldOfView 1
+      width 128
+      height 96
+    }
+  ]
+}
