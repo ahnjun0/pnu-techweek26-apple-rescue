@@ -368,7 +368,7 @@ DETECT_MIN_BLOB_PIXELS = 25     # 이보다 작은 덩어리는 잡음으로 버
 
 # --- 목표물까지 거리 — 카메라만으로 잰다 (detect.camera_range) ---------------------
 # 크기로 한 번, 바닥 위치로 한 번 재서 **둘이 맞아야** 받는다. 사과(꼭대기 0.10 m)는 LiDAR
-# 평면(0.153 m)보다 낮아 LiDAR 로는 잴 수 없다 (TurtleBot3Burger.proto:37-39).
+# 평면(0.173 m = 슬롯 0.153 + LDS-01 0.02, TurtleBot3Burger.proto:38·RobotisLds01.proto:14)보다 낮아 LiDAR 로는 잴 수 없다.
 # 녹화 프레임: 진짜 사과는 두 거리가 1~7% 안에서 맞고, 소화기는 81% 어긋났다.
 TARGET_RADIUS = 0.05            # [m] 사과 반지름 (RedApple.proto:58-59 boundingObject Sphere, scale 1)
 CAMERA_HEIGHT = 0.073           # [m] 확장슬롯 z 0.153 (TurtleBot3Burger.proto:38) + 대회 카메라 z -0.08 (apartment.wbt)
