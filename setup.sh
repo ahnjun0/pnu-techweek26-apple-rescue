@@ -46,7 +46,7 @@ WEBOTS=/Applications/Webots.app/Contents/MacOS/webots
 [ -x "$WEBOTS" ] && echo "  Webots OK ($WEBOTS)" || echo "  ⚠️ Webots R2025a 가 /Applications 에 없다 — https://cyberbotics.com 에서 R2025a 설치"
 
 echo "== 5. Webots 에셋·채점 월드"
-bash tools/setup_assets.sh
+bash tools/setup_assets.sh || echo "  ⚠️ 에셋 미러를 받지 못했다 — 대회 조건 월드만 만든다 (미러판은 bash tools/setup_assets.sh 를 다시 돌린 뒤 python tools/make_check_worlds.py)"
 "$PY" tools/make_check_worlds.py
 
 cat <<MSG

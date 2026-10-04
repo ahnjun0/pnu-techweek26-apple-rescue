@@ -24,7 +24,6 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SOURCE = os.path.join(ROOT, "external", "PNU-TECHWEEK-260930", "worlds", "apartment.wbt")
 _spec = importlib.util.spec_from_file_location(
     "localize_assets", os.path.join(ROOT, "tools", "localize_assets.py"))
 localize = importlib.util.module_from_spec(_spec)
@@ -59,28 +58,36 @@ def without_people(text):
     return one(r"\nPedestrian \{\n(?:  .*\n)*?\}\n", "\n", text, "보행자 노드")
 
 
-def main():
-    with open(SOURCE, encoding="utf-8") as f:
+def main(argv=None, root=ROOT, mirror=None):
+    """채점 월드를 만든다. 에셋 미러가 없으면 대회 조건 월드(원격 에셋)만 만든다."""
+    argv = sys.argv[1:] if argv is None else argv
+    remote = "--remote" in argv
+    if mirror is not None:
+        localize.MIRROR = mirror
+    with open(os.path.join(root, "external", "PNU-TECHWEEK-260930", "worlds", "apartment.wbt"),
+              encoding="utf-8") as f:
         base = with_scoring(f.read())
     outputs = {   # 이름: (내용, 로컬 미러로 바꿀까)
         "apartment_competition_check.wbt": (base, False),
         "apartment_check.wbt": (base, True),
         "apartment_nopeople_check.wbt": (without_people(base), True),
     }
-    remote = "--remote" in sys.argv
     if not remote and not os.path.isdir(localize.MIRROR):
-        sys.exit("❌ 에셋 미러가 없다 — bash tools/setup_assets.sh 먼저 (./setup.sh 가 한다)")
+        # 대회 조건 월드는 원래 원격 주소라 미러가 필요 없다 — 그것만이라도 만든다.
+        print("⚠️ 에셋 미러가 없다 — 대회 조건 월드만 만든다. 미러판은 bash tools/setup_assets.sh 뒤에 다시 돌린다.")
+        outputs = {k: v for k, v in outputs.items() if not v[1]}
     for name, (text, use_mirror) in outputs.items():
-        path = os.path.join(ROOT, "worlds", name)
+        path = os.path.join(root, "worlds", name)
         missing = set()
         if use_mirror and not remote:
             text = localize.rewrite(text, os.path.dirname(path), missing)
         with open(path, "w", encoding="utf-8") as f:
             f.write(text)
         left = len(localize.REMOTE.findall(text))
-        print(f"만들었다: {os.path.relpath(path, ROOT)}  (원격 주소 {left} 개)")
+        print(f"만들었다: {os.path.relpath(path, root)}  (원격 주소 {left} 개)")
         for m in sorted(missing):
             print("  ⚠️ 미러에 없음:", m)
+
 
 if __name__ == "__main__":
     main()
