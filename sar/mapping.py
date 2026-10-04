@@ -169,7 +169,7 @@ def mark_camera_seen(seen, grid, pose, fov, reach, rays=None):
     ⚠️ 왜 필요한가: 탐색 종료는 **LiDAR** 커버리지로 판단하는데, 목표물을 찾는
        것은 **카메라** 다. LiDAR 는 360°, 카메라는 57° 라 둘이 크게 어긋난다.
        지도를 다 그려도 카메라가 그쪽을 한 번도 안 봤으면 목표물은 못 찾는다.
-       실측(무작위 월드 rand2): 탐색 90%, 정상 종료, 복귀 완료 — 그런데 카메라는
+       실측(처음 보는 무작위 월드): 탐색 90%, 정상 종료, 복귀 완료 — 그런데 카메라는
        80% 만 훑었고 목표물 셋 중 **하나만** 찾았다.
     """
     rays = config.CAMERA_COVER_RAYS if rays is None else rays

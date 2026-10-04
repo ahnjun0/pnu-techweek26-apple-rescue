@@ -275,7 +275,7 @@ def step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     ⚠️ 한때 주행기가 두 벌이었다 (look-ahead 추종 + 안전정지 / DWA).
        DWA 가 모든 항목에서 이겨서 추종 쪽을 통째로 들어냈다
        (171초 -> 124초, 정지 23% -> 10%, 벽 여유 2.9cm -> 8.5cm).
-       자세한 것은 docs/무엇을-빼기로-했나.md.
+       자세한 것은 docs/측정_기록.md.
     """
     return dwa_step(pose, path, ranges, index, current_speed, current_turn, dt,
                     allow_idle=allow_idle, people=people)
@@ -305,12 +305,7 @@ def dynamic_window(current_speed, current_turn, dt):
        그래서 **고르는 창** 은 DWA_ACCEL_HORIZON 으로 넓히고, **내보내는 값** 은
        clamp_accel 로 한 틱의 가속 한계에 묶는다 — 부드러움은 거기서 지킨다.
     """
-    # ⚠️ 두 축을 다 넓힌다. 한때 "회전축을 넓히면 바퀴가 미끄러져 오도메트리가
-    #    폭주한다" 고 보고 회전축만 되돌렸는데, 재 보니 틀린 진단이었다:
-    #      회전축도 넓힘   comb0 3/3 (405초)   corridor2 오차 105.6 cm
-    #      회전축만 되돌림 comb0 2/3 (850초)   corridor2 오차 100.5 cm
-    #    오차는 그대로인데 comb0 만 목표물 하나를 잃었다. corridor2 의 드리프트는
-    #    회전이 아니라 스캔매처의 성분별 이득 검사 누락이었다 (scanmatch.py 참고).
+    # ⚠️ 두 축을 다 넓힌다. 회전축만 되돌려 보니 오도메트리 오차는 그대로였고 목표물만 잃었다.
     horizon = max(dt, config.DWA_ACCEL_HORIZON)
     speed_span = config.DWA_MAX_ACCEL * horizon
     turn_span = config.DWA_MAX_ANG_ACCEL * horizon
@@ -406,9 +401,7 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     # 완벽히 피했는데 보행자만 0.029 m 까지 닿았다.
     # ⚠️ 가까운 사람만 본다. 멀리 있는 사람(이나 유령)의 미래 위치는 우리 궤적과
     #    만날 수 없는데, 그걸 계산해 장애물에 더하면 **비용만** 든다.
-    #    실측: 예측을 켠 뒤 comb0/comb2 가 1100초 벽시계로 완주를 못 했다
-    #    (680초까지밖에 못 감). 사람이 **없는** 월드에서도 유령 검출이 0.10/틱
-    #    남아 있어 매 틱 예측 점을 만들고 있었다.
+    #    실측: 사람이 **없는** 월드에서도 유령 검출이 남아 매 틱 예측 점을 만들어 느려졌다.
     #    (allow_idle 때와 같은 처방이다: 검출 유무가 아니라 **거리** 로 거른다.)
     reach = config.DWA_PERSON_REACH
     if reach > 0.0 and people:
@@ -432,8 +425,7 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     #    없다" 여야 한다. 제자리 후보는 궤적이 "점" 이라 여유가 늘 만점이므로
     #    safe.any() 를 언제나 만족시킨다 — 그래서 전진할 데가 없는데도 좁은
     #    여유 비상구가 영영 발동하지 않았다.
-    #    실측: comb 지도에서 최근접 0.34 m(요구 0.33 m) 인 자리에 **200초** 갇혀
-    #    제자리 회전만 했다. 비상구는 코드에 있었지만 열린 적이 없었다.
+    #    실측: 요구 여유를 겨우 넘는 자리에 **200초** 갇혀 제자리 회전만 했다.
     forward = speed_flat > config.DWA_IDLE_SPEED
     LAST["fwd"] = int(forward.sum())
     LAST["safe_fwd"] = int((safe & forward).sum())
@@ -479,7 +471,7 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     #      그대로 두면   사람과 닿은시간 합 12.8초 / 최악 거리 3.4 cm
     #      움직이게 강제 사람과 닿은시간 합 23.0초 / 최악 거리 2.8 cm
     #    사람 근처에서 억지로 움직이면 상대운동이 늘어난다. 가만히 있으면
-    #    적어도 내가 다가가지는 않는다. docs/무엇을-빼기로-했나.md 참고.
+    #    적어도 내가 다가가지는 않는다. docs/측정_기록.md 참고.
 
     if not safe.any():
         # 그래도 없다. 제자리 회전은 원형 로봇에게 어느 쪽이든 안전하므로,
@@ -519,7 +511,7 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     # ⚠️ 고른 값을 여기서 "한 틱 가속 한계" 로 묶어 봤다가 되돌렸다. v 만 줄고
     #    ω 는 그대로면 회전 반경 v/ω 가 모의주행한 것보다 **조여져서**, 평가하지
     #    않은 궤적으로 벽에 휘어 든다 — 안전 판정이 거짓이 된다.
-    #    실측: comb0 이 2/3 에서 1/3 으로, 벽 여유가 0.3 cm 까지 떨어졌다.
+    #    실측: 목표물을 하나 잃고 벽 여유가 0.3 cm 까지 떨어졌다.
     #    그래서 표준 DWA 대로 고른 값을 그대로 내보낸다 (평가 궤적 = 실행 궤적).
     if speed < 0.0:
         _tally("후진을 골랐다")
