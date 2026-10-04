@@ -421,7 +421,7 @@ def main():
     recorder = None
     if record_path:
         from debug import replay_check
-        recorder = replay_check.Recorder(timestep, dt, camera_fov)
+        recorder = replay_check.Recorder(record_path, timestep, dt, camera_fov)
         brain.classify = recorder.wrap_classify(brain.classify)
     while True:
         if robot.step(timestep) == -1:
@@ -689,9 +689,9 @@ def main():
             sensors.stop()
             break
 
-    if recorder and not terminated:
-        recorder.save(record_path)
-        print(f"  재생 비교용 녹화: {record_path} (틱 {len(recorder.data['ticks'])}개)")
+    if recorder:
+        recorder.close()
+        print(f"  재생 비교용 녹화: {record_path} (틱 {recorder.ticks}개)")
         sys.stdout.flush()
     if movie and not terminated:
         robot.movieStopRecording()
