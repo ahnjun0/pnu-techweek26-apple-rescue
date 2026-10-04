@@ -19,10 +19,10 @@ from matplotlib import font_manager
 import numpy as np
 from PIL import Image
 
-import common
-import config
-import mapping
-import detect
+from sar import common
+from sar import config
+from sar import mapping
+from sar import detect
 
 config.apply_timestep(64)
 OUT = "/tmp/deck/gif"

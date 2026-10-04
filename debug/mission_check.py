@@ -20,16 +20,16 @@ if os.environ.get("SAR_VIZ", "1") == "0":
 import matplotlib.pyplot as plt
 import numpy as np
 
-import common
-import config
-import localization
-import mapping
-import planner
-import follower
-import mission as mission_mod
-import people as people_mod
-import sensors as sensors_mod
-import viz as viz_mod
+from sar import common
+from sar import config
+from sar import localization
+from sar import mapping
+from sar import planner
+from sar import follower
+from sar import mission as mission_mod
+from sar import people as people_mod
+from sar import sensors as sensors_mod
+from sar import viz as viz_mod
 from debug import truth as truth_mod
 
 # 사람의 몸 반경 [m] — Pedestrian.proto (R2025a) 에서 읽었다. 추측 아님.
@@ -310,7 +310,7 @@ def main():
     truth_src = truth_mod.Truth(robot)   # 정답 위치 — 채점 전용 (debug/truth.py)
     odometry = localization.Odometry()
     brain = mission_mod.Mission(odometry.pose)
-    import yolo_check
+    from sar import yolo_check
     brain.classify = yolo_check.load()   # 모델이 없으면 여기서 크게 알리고 멈춘다
     # 검증 중에도 지도를 눈으로 볼 수 있게 한다. SAR_VIZ=0 이면 알아서 꺼진다.
     display = viz_mod.Viz("mission_check — 검증하며 지도 보기")
@@ -646,7 +646,7 @@ def main():
     print("=" * 74)
     print(f"  상태            : {brain.state}  ({brain.status})")
     confirmed = brain.targets.confirmed
-    import detect as _detect
+    from sar import detect as _detect
     print(f"  YOLO 판정        : {dict(_detect.YOLO_COUNT) or '한 번도 안 돌았다'}")
     print(f"  미끄러짐 감지     : {brain.slip_count} 회"
           + (f"  {[(round(x, 2), round(y, 2)) for x, y in brain.slip_spots]}" if brain.slip_spots else ""))
@@ -737,7 +737,7 @@ def main():
             # ⚠️ 그 목표물 근처에 **프론티어가 있기는 한가** 를 두 가지 마스크로
             #    본다. 엄격한 마스크(reachable_only=True)는 벽 근처 프론티어를
             #    지우므로, 둘의 차이가 "필터가 지웠다" 의 증거가 된다.
-            import exploration as _ex
+            from sar import exploration as _ex
             for label, strict in (("엄격", True), ("느슨", False)):
                 m = _ex.frontier_mask(brain.grid, reachable_only=strict)
                 frows, fcols = np.nonzero(m)
@@ -822,7 +822,7 @@ def main():
     # ⚠️ 여기서 choose_unseen / camera_gain 을 불러 보고 있었다 (둘 다 없앴다).
     #    카메라 커버리지 자체는 위에 그대로 남아 있다 — 없앤 것은 그 값을 **목표
     #    점수에 쓰던 것** 이고, 얼마나 훑었는지 보는 계측은 여전히 필요하다.
-    import exploration as _exp
+    from sar import exploration as _exp
     _cl = _exp.candidate_list(brain.grid, truth)
     if _cl:
         print(f"  ▶ 후보들의 경로 길이: {[round(v[1], 2) for v in _cl]}  (m)"

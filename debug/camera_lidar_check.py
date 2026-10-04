@@ -17,10 +17,10 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-import common
-import config
-import viz  # noqa: F401  (한글 폰트 설정을 위해 import 한다)
-import sensors as sensors_mod
+from sar import common
+from sar import config
+from sar import viz  # noqa: F401  (한글 폰트 설정을 위해 import 한다)
+from sar import sensors as sensors_mod
 from debug import truth as truth_mod
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")

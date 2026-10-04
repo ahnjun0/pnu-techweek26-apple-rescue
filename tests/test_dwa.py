@@ -10,9 +10,9 @@ import math
 import numpy as np
 import pytest
 
-import common
-import config
-import follower
+from sar import common
+from sar import config
+from sar import follower
 
 
 def clear(distance=3.0):

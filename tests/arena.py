@@ -5,7 +5,7 @@ config 의 기본값은 대회(apartment: 16×16 m 지도, 시작 (-0.3, -7.5), 
 ⚠️ 기하·주기·바퀴 반지름 같은 **입력** 만 바꾼다. 판단 로직은 대회 그대로 시험한다.
 ⚠️ conftest 가 **import 될 때** 넣는다 — 테스트 모듈이 import 시점에 config 로 계산하는 값이 있다.
 """
-import config
+from sar import config
 
 VALUES = {
     "TIME_STEP": 16,

@@ -8,5 +8,5 @@ import sys
 
 def start(who):
     print(f"[{who}] python {sys.executable}", flush=True)
-    import deps
+    from . import deps
     deps.check(who)

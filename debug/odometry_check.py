@@ -10,10 +10,10 @@
 import math
 import sys
 
-import common
-import config
-import localization
-import sensors as sensors_mod
+from sar import common
+from sar import config
+from sar import localization
+from sar import sensors as sensors_mod
 from debug import truth as truth_mod
 
 # 검증 주행은 느리고 조심스럽게 한다.

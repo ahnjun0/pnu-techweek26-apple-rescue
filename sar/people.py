@@ -20,10 +20,10 @@
 import math
 import numpy as np
 
-import common
-import config
-import mapping
-import planner
+from . import common
+from . import config
+from . import mapping
+from . import planner
 
 
 # ── 진단 계수기 ───────────────────────────────────────────────────────────

@@ -11,8 +11,8 @@ import math
 
 import numpy as np
 
-import common
-import config
+from . import common
+from . import config
 
 # 상태 문자열 (화면과 상태머신이 같이 읽는다)
 DRIVING = "주행"

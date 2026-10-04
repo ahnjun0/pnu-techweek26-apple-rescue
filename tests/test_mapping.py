@@ -10,9 +10,9 @@ import math
 import numpy as np
 import pytest
 
-import common
-import config
-import mapping
+from sar import common
+from sar import config
+from sar import mapping
 
 
 def ranges_all(value):

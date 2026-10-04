@@ -16,9 +16,9 @@ import functools
 import cv2
 import numpy as np
 
-import common
-import config
-import mapping
+from . import common
+from . import config
+from . import mapping
 
 # 8방향 이동. (dr, dc, 한 걸음 비용[칸])
 _MOVES = [

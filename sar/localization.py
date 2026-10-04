@@ -9,8 +9,8 @@
 
 import math
 
-import common
-import config
+from . import common
+from . import config
 
 
 def heading_from_compass(values):

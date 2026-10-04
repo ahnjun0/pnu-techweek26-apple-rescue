@@ -9,11 +9,10 @@ import math
 import numpy as np
 import pytest
 
-import common
-import config
-import detect
+from sar import common
+from sar import config
 import fake_world
-import mission
+from sar import mission
 
 CAMERA_FOV = 1.0
 
@@ -273,7 +272,7 @@ def test_a_standing_wall_feature_is_not_a_person():
        스캔 같은 자리에 보인다. 그래서 사람이 없는 미로에서 900초 중 335초의
        틱에 유령 사람이 잡혔고, 계획기에 가짜 사회적 비용이 얹혔다.
     """
-    import people as people_mod
+    from sar import people as people_mod
 
     pose = (0.0, 0.0, 0.0)
     watcher = people_mod.Watcher()
@@ -288,7 +287,7 @@ def test_a_standing_wall_feature_is_not_a_person():
 
 def test_a_moving_blob_is_a_person_whatever_its_shape():
     """옮겨 가는 덩어리는 사람으로 친다 — 모양을 묻지 않는다."""
-    import people as people_mod
+    from sar import people as people_mod
 
     pose = (0.0, 0.0, 0.0)
     watcher = people_mod.Watcher()
@@ -308,7 +307,7 @@ def test_people_are_avoided_where_they_are_going():
        안 닿았는데, Webots Pedestrian 만 0.029 m 까지 닿았다 (5.9초).
        보행자는 기구학적이라 궤적을 그대로 밀고 지나간다 — 우리가 미리 비켜야 한다.
     """
-    import follower
+    from sar import follower
 
     # 기본값은 꺼져 있다 (측정이 나빠서). 기능 자체는 살아 있어야 하므로 켜고 본다.
     import pytest
@@ -338,8 +337,8 @@ def test_wall_surface_noise_is_not_a_person():
        흔들려 이전에 "빈 칸" 으로 찍힌 자리에 반사가 생기기 때문이다.
        그 유령이 계획기에 사회적 비용을 얹어 maze0 이 30.6 -> 83.9 m 가 됐다.
     """
-    import mapping
-    import people as people_mod
+    from sar import mapping
+    from sar import people as people_mod
 
     grid = mapping.new_map()
     r0, c0 = common.to_cell(-3.0, -3.0)
@@ -371,7 +370,7 @@ def test_walker_seen_for_only_part_of_the_window_is_still_a_person():
        그룹에서 0.5 m/s 로 걷는 사람은 1.6 cm 밖에 못 간다 → 기각.
        실측: 그 상태에서 "볼 수 있었을 때의 재현율" 이 53% 였다.
     """
-    import people as people_mod
+    from sar import people as people_mod
 
     dt = config.TIME_STEP / 1000.0
     speed = 0.5                       # stress_check 의 보행자 속도

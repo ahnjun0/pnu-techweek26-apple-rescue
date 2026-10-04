@@ -8,14 +8,14 @@ import math
 import numpy as np
 import pytest
 
-import common
-import config
+from sar import common
+from sar import config
 import fake_world
-import exploration
-import follower
-import mapping
-import mission
-import planner
+from sar import exploration
+from sar import follower
+from sar import mapping
+from sar import mission
+from sar import planner
 
 
 def clear_lidar(distance=3.0):
@@ -745,7 +745,7 @@ def test_camera_lead_may_cross_unknown_ground():
        (켜 두면 벽 바깥 경로가 생겼다). 단서는 **근거가 다르므로** 이 경우에만
        미탐색 통과를 허용한다.
     """
-    import planner
+    from sar import planner
 
     grid = mapping.new_map()          # 전부 미탐색
     # 로봇 주변만 빈 칸으로 (여기서 출발할 수 있어야 한다)

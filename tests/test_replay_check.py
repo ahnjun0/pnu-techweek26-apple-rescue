@@ -1,9 +1,9 @@
 """재생 비교 장치가 같은 것은 같다고, 다른 것은 다르다고 하는가."""
 import numpy as np
 
-import config
-import localization
-import mission
+from sar import config
+from sar import localization
+from sar import mission
 from debug import replay_check
 
 DT = 0.016

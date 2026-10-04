@@ -5,8 +5,8 @@ import math
 import numpy as np
 import pytest
 
-import common
-import config
+from sar import common
+from sar import config
 
 
 # --- to_cell / to_world 왕복 -------------------------------------------------

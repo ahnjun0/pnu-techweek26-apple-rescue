@@ -34,7 +34,7 @@ INI
 done
 
 echo "== 3. 확인"
-"$PY" -c "import deps; deps.check('setup'); print('  라이브러리 OK')"
+"$PY" -c "from sar import deps; deps.check('setup'); print('  라이브러리 OK')"
 [ -f models/YOLO/yolo11n.pt ] && echo "  YOLO 모델 OK (models/YOLO/yolo11n.pt)" || echo "  ❌ models/YOLO/yolo11n.pt 가 없다"
 WEBOTS=/Applications/Webots.app/Contents/MacOS/webots
 [ -x "$WEBOTS" ] && echo "  Webots OK ($WEBOTS)" || echo "  ⚠️ Webots R2025a 가 /Applications 에 없다 — https://cyberbotics.com 에서 R2025a 설치"

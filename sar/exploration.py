@@ -11,10 +11,10 @@ from collections import deque
 
 import numpy as np
 
-import common
-import config
-import mapping
-import planner
+from . import common
+from . import config
+from . import mapping
+from . import planner
 
 
 def frontier_mask(grid, reachable_only=True):

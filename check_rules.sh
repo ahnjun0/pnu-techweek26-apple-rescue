@@ -12,14 +12,14 @@ hits=$(grep -rn $EXCLUDE --include="*.py" -E "read_gps|enable_gps|getDevice\\(.g
        | grep -vE "^\.?/?(debug/|tools/)")
 if [ -n "$hits" ]; then echo "$hits"; fail=1; else echo "  OK"; fi
 
-echo "규칙 2 — Webots import 는 sensors.py / controllers/ / debug/ 에만"
+echo "규칙 2 — Webots import 는 sar/sensors.py / controllers/ / debug/ 에만"
 hits=$(grep -rn $EXCLUDE --include="*.py" -E "^from controller import|^import controller" . \
-       | grep -vE "^\.?/?(debug/|controllers/|sensors\.py:)")
+       | grep -vE "^\.?/?(debug/|controllers/|sar/sensors\.py:)")
 if [ -n "$hits" ]; then echo "$hits"; fail=1; else echo "  OK"; fi
 
-echo "규칙 4 — 좌표 변환은 common.py 에만 (MAP_RESOLUTION 직접 나눗셈 금지)"
+echo "규칙 4 — 좌표 변환은 sar/common.py 에만 (MAP_RESOLUTION 직접 나눗셈 금지)"
 hits=$(grep -rn $EXCLUDE --include="*.py" "MAP_RESOLUTION" . \
-       | grep -vE "^\.?/?(common\.py:|config\.py:|tests/)")
+       | grep -vE "^\.?/?(sar/common\.py:|sar/config\.py:|tests/)")
 if [ -n "$hits" ]; then echo "$hits"; fail=1; else echo "  OK"; fi
 
 [ "$fail" -eq 0 ] && echo "\n전부 통과" || echo "\n위반 있음"

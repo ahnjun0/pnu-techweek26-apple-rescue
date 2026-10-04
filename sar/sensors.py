@@ -10,7 +10,7 @@ import math
 import numpy as np
 from controller import Robot  # noqa: F401  (타입 힌트 겸 import 확인용)
 
-import config
+from . import config
 
 
 class Sensors:

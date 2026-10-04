@@ -12,8 +12,8 @@ import math
 import cv2
 import numpy as np
 
-import common
-import config
+from sar import common
+from sar import config
 
 # 벽 격자는 지도보다 곱게 쓴다 (측정값이 지도 해상도에 딱 맞아떨어지지 않게).
 TRUTH_RESOLUTION = 0.02

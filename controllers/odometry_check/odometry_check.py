@@ -11,7 +11,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-import boot  # noqa: E402  (config 보다 먼저 — 대회 설정·라이브러리 확인)
+from sar import boot  # noqa: E402  (config 보다 먼저 — 라이브러리 확인)
 boot.start("odometry_check")
 
 from debug.odometry_check import main

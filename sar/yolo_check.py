@@ -10,7 +10,7 @@ ultralytics(수백 MB)가 필요하므로 순수 모듈(detect, mission)은 이�
 import os
 import sys
 
-import config
+from . import config
 
 
 def _alert(lines):

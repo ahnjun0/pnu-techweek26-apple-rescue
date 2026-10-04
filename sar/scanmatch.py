@@ -16,9 +16,9 @@ import math
 import cv2
 import numpy as np
 
-import common
-import config
-import mapping
+from . import common
+from . import config
+from . import mapping
 
 
 def likelihood_field(grid):

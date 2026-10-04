@@ -5,9 +5,9 @@ import math
 import numpy as np
 import pytest
 
-import common
-import config
-import follower
+from sar import common
+from sar import config
+from sar import follower
 
 
 """주행기 보조 함수들을 본다. DWA 자체는 tests/test_dwa.py 에서 본다."""

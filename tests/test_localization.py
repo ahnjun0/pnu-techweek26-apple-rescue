@@ -7,9 +7,9 @@ import math
 
 import pytest
 
-import common
-import config
-import localization
+from sar import common
+from sar import config
+from sar import localization
 
 
 def rad_for(distance):

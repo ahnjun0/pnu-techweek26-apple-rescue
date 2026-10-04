@@ -2,8 +2,8 @@
 
 import numpy as np
 
-import config
-import people
+from sar import config
+from sar import people
 
 
 def test_kalman_tracker_recovers_walking_speed_from_noisy_positions():

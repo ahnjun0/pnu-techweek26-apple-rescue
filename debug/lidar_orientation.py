@@ -12,9 +12,9 @@ import sys
 
 import numpy as np
 
-import common
-import config
-import sensors as sensors_mod
+from sar import common
+from sar import config
+from sar import sensors as sensors_mod
 
 # lidar_test.wbt 에 놓은 상자들. (이름, 진짜 방향 [rad], 대략 거리 [m])
 BOXES = [

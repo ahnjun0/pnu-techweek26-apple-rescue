@@ -11,8 +11,8 @@ import math
 
 import numpy as np
 
-import common
-import config
+from . import common
+from . import config
 
 
 def new_map():

@@ -10,7 +10,7 @@ import math
 
 import numpy as np
 
-import config
+from . import config
 
 # ==========================================================================
 # 좌표계 규약  (모든 모듈이 이것만 따른다)

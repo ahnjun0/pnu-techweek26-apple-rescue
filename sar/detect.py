@@ -12,8 +12,8 @@ import math
 import cv2
 import numpy as np
 
-import common
-import config
+from . import common
+from . import config
 
 
 def red_mask(image_bgr):

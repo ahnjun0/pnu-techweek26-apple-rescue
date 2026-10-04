@@ -11,15 +11,15 @@ import math
 
 import numpy as np
 
-import common
-import config
-import detect
-import exploration
-import follower
-import mapping
-import people as people_mod
-import planner
-import scanmatch
+from . import common
+from . import config
+from . import detect
+from . import exploration
+from . import follower
+from . import mapping
+from . import people as people_mod
+from . import planner
+from . import scanmatch
 
 SCAN = "SCAN"          # 시작하자마자 제자리에서 한 바퀴 — 주변 지도부터 만든다
 EXPLORE = "EXPLORE"    # 프론티어를 찾아 돌아다니며 지도를 넓힌다

@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 
-import common
-import config
-import exploration
-import mapping
-import planner
+from sar import common
+from sar import config
+from sar import exploration
+from sar import mapping
+from sar import planner
 
 
 def map_with_free_box(row0, row1, col0, col1):
@@ -365,7 +365,7 @@ def test_frontier_near_a_wall_is_not_thrown_away():
 
     import numpy as np
 
-    import exploration
+    from sar import exploration
 
     here = os.path.dirname(os.path.abspath(__file__))
     grid = np.load(os.path.join(here, "data", "comb3_end_grid.npz"))["grid"]
@@ -393,10 +393,10 @@ def test_candidates_are_places_the_robot_can_stand():
 
     import numpy as np
 
-    import common
-    import config
-    import exploration
-    import planner
+    from sar import common
+    from sar import config
+    from sar import exploration
+    from sar import planner
 
     here = os.path.dirname(os.path.abspath(__file__))
     grid = np.load(os.path.join(here, "data", "comb3_end_grid.npz"))["grid"].copy()

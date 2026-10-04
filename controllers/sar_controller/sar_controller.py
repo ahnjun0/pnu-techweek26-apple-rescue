@@ -14,16 +14,16 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-import boot  # noqa: E402  (config 보다 먼저 — 대회 설정·라이브러리 확인)
+from sar import boot  # noqa: E402  (config 보다 먼저 — 라이브러리 확인)
 boot.start("sar_controller")
 
 from controller import Robot
 
-import config
-import localization
-import mission as mission_mod
-import sensors as sensors_mod
-import viz as viz_mod
+from sar import config
+from sar import localization
+from sar import mission as mission_mod
+from sar import sensors as sensors_mod
+from sar import viz as viz_mod
 
 
 def main():
@@ -44,7 +44,7 @@ def main():
     sensors = sensors_mod.Sensors(robot)          # GPS 는 켜지 않는다
     odometry = localization.Odometry()
     brain = mission_mod.Mission(odometry.pose)
-    import yolo_check
+    from sar import yolo_check
     brain.classify = yolo_check.load()   # 모델이 없으면 여기서 크게 알리고 멈춘다
     display = viz_mod.Viz("sar — 자율 탐색")
     camera_fov = sensors.camera.getFov()

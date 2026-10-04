@@ -9,8 +9,8 @@ import math
 import numpy as np
 import pytest
 
-import config
-import detect
+from sar import config
+from sar import detect
 
 
 def blank(width=128, height=96, colour=(40, 40, 40)):
@@ -224,8 +224,8 @@ def test_lead_is_chased_only_after_enough_sightings_and_then_given_up():
     """한 번 반짝한 것은 안 쫓고, 몇 번 본 것만 쫓되 무한히 쫓지 않는다."""
     import math
 
-    import config
-    import detect
+    from sar import config
+    from sar import detect
 
     leads = detect.LeadList()
     pose = (0.0, 0.0, 0.0)
@@ -257,8 +257,8 @@ def test_more_confirmed_than_expected_keeps_only_the_best_seen():
        선행 대회도 같은 방식이다 — DARPA SubT 는 보고 횟수를 정해 오검출을
        억제했고, RoboCup Rescue 는 오검출에 감점을 준다.
     """
-    import config
-    import detect
+    from sar import config
+    from sar import detect
 
     store = detect.TargetList(limit=3)
     for i, seen in enumerate([40, 35, 30, 28]):

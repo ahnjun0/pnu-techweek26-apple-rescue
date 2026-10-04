@@ -8,7 +8,7 @@ import math
 
 import pytest
 
-import config
+from sar import config
 
 
 def test_stop_distance_is_derived_not_hand_set():

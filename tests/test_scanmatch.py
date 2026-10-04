@@ -4,10 +4,10 @@ import math
 
 import numpy as np
 
-import common
-import config
-import mapping
-import scanmatch
+from sar import common
+from sar import config
+from sar import mapping
+from sar import scanmatch
 
 
 def _room_ranges(pose, half=1.61, notch=(0.92, 0.41)):

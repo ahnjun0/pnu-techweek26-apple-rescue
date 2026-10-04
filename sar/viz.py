@@ -14,9 +14,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
-import common
-import config
-import mapping
+from . import common
+from . import config
+from . import mapping
 
 # --- 한글 라벨이 네모로 깨지지 않게 폰트를 고른다 --------------------------
 # 설치된 것 중 제일 먼저 찾은 것을 쓰고, 하나도 없으면 라벨을 영어로 바꾼다.
