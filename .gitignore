@@ -8,7 +8,14 @@ debug/out/
 # uv 가상환경 (uv sync 로 다시 만든다)
 .venv/
 # Webots R2025a 에셋 로컬 사본 (git sparse clone — 다시 받으면 된다)
-competition/webots_assets/
+competition/webots_assets
+
+# ./setup.sh 가 받거나 만드는 것 (공개 저장소에 넣을 수 없다 — README 라이선스 절)
+external/
+models/
+protos/*Apple.proto
+protos/icons/
+worlds/apartment_*check.wbt
 
 # 비교 실험용 로컬 월드 (tools/localize_assets.py 로 다시 만든다)
 worlds/_local_*.wbt
