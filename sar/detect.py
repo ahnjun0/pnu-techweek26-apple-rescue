@@ -119,6 +119,12 @@ def floor_position(bottom_row, centre_col, pose, width, height, fov):
             cam_y + distance * math.sin(theta + bearing))
 
 
+def _floor_width(box_width, distance, width, fov):
+    """distance [m] 에 있는 물체가 영상에서 box_width 픽셀이면 실제 폭은 몇 m 인가."""
+    focal = (width / 2.0) / math.tan(fov / 2.0)
+    return box_width * distance / focal
+
+
 class LowObstacles:
     """LiDAR 에 안 보이는 낮은 물체의 위치 목록 (config 의 '낮은 물체' 설명 참고)."""
 
@@ -195,7 +201,10 @@ def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=Non
             # 바닥에 닿은 빨간 것은 사과든 캔이든 **부딪히면 안 되는 물체** 다.
             # ⚠️ 모양 검사보다 **먼저** 적는다 — 누운 캔은 모양 검사에서 걸러지기 때문이다.
             spot = floor_position(box["top"] + box["h"] - 0.5, box["cx"], pose, width, height, fov)
-            if spot is not None:
+            # ⚠️ 폭도 본다 — 그 거리에서 너무 좁으면 멀리 있는 빨간 점이다 (config.LOW_MIN_WIDTH).
+            if spot is not None and _floor_width(box["w"], math.hypot(spot[0] - cam_x,
+                                                                     spot[1] - cam_y),
+                                                 width, fov) >= config.LOW_MIN_WIDTH:
                 low_list.add(*spot)
         if box["h"] > config.DETECT_MAX_ASPECT * box["w"]:
             rejected += 1                    # 세로로 길다 (소화기 등)

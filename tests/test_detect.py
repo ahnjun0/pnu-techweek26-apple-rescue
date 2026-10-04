@@ -436,3 +436,19 @@ def test_a_flat_red_can_on_the_floor_becomes_a_low_obstacle(monkeypatch):
                                 detect.TargetList(), low_list=low)
         assert placed == 0
     assert len(low.positions()) == 1
+
+
+def test_a_tiny_red_speck_is_not_a_low_obstacle():
+    """바닥 접점으로는 0.9 m 앞인데 9 px 이면 폭 1.5 cm — 과일·캔일 수 없다. 멀리 있는 빨간 점이다.
+
+    ⚠️ 회귀 방지. 대회 월드(2026-10-05, 녹화 재생): 소파 너머로 보인 9x9 빨간 점이 소파와
+       커피 테이블 사이 통로 (-6.03, -1.83) 에 낮은 물체로 찍혀 거실로 가는 북쪽 길을 막았다.
+    """
+    import cv2
+    img = np.zeros((480, 640, 3), np.uint8)
+    cv2.rectangle(img, (17, 273), (25, 281), (0, 0, 255), -1)      # 9x9, 녹화 그대로
+    low = detect.LowObstacles()
+    for _ in range(config.LOW_MIN_SIGHTINGS + 2):
+        detect.scan(img, np.full(360, 5.0), (0.0, 0.0, 0.0), 1.0472,
+                    detect.TargetList(), low_list=low)
+    assert low.positions() == []
