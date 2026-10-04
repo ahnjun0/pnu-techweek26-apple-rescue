@@ -889,6 +889,75 @@ def test_return_retraces_the_trail_when_the_map_has_no_path():
     assert speed > 0.0, "되짚는 길로 실제로 움직여야 한다"
 
 
+def _no_more_sweeps(brain):
+    brain._sweep_points = [(9.0, 9.0)] * config.MISSION_SWEEP_POINTS
+
+
+def test_trapped_robot_retraces_out_instead_of_ending_exploration():
+    """갈 경계가 안 보이는데 집까지도 길이 없으면 "다 봤다" 가 아니라 "갇혔다" 다.
+
+    ⚠️ 회귀 방지. 실측(대회 월드, 2026-10-05 녹화 재생): 좁은 문으로 북동쪽 방에 들어간 뒤
+       그 문이 지도에서 좁은 여유로도 못 지나가게 칠해졌다. 계획기에게 방 밖이 전부
+       "갈 수 없음" 이 되어 422초에 탐색을 끝냈다 (478초 남음, 사과 1/2). 복귀는 지나온 길
+       되짚기로 그 문을 빠져나갔고, 빠져나온 자리에서는 거실 쪽 경계 12개에 길이 있었다.
+    """
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    _no_more_sweeps(brain)
+    # 지도가 전부 미탐색 — 집까지도 길이 없다
+    brain._decide_next((1.0, 0.0, 0.0), exploring_possible=False)
+    assert brain.state == mission.RETURN, "빠져나오는 일은 복귀의 되짚기가 한다"
+    assert brain._resume_after_escape
+    assert "갇혔다" in brain.status
+
+
+def test_after_escaping_the_robot_goes_back_to_exploring():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.RETURN
+    brain._resume_after_escape = True
+    brain.grid[:] = config.LOG_ODDS_MIN          # 빠져나왔다 — 이제 집까지 길이 있다
+    brain._refresh_plan_grid()
+    brain._return((1.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert brain.state == mission.EXPLORE, brain.status
+    assert not brain._resume_after_escape
+    assert brain._escape_resumes == 1
+
+
+def test_after_escaping_past_the_deadline_the_robot_keeps_going_home():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.RETURN
+    brain._resume_after_escape = True
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain._refresh_plan_grid()
+    brain.elapsed = config.MISSION_TIME_LIMIT    # 복귀 마감을 넘겼다
+    brain._return((1.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert brain.state == mission.RETURN
+    assert not brain._resume_after_escape, "마감을 넘겼으면 다시 탐색하지 않는다"
+
+
+def test_escape_resumes_are_limited():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    _no_more_sweeps(brain)
+    brain._escape_resumes = config.EXPLORE_ESCAPE_RESUMES
+    brain._decide_next((1.0, 0.0, 0.0), exploring_possible=False)
+    assert brain.state == mission.RETURN
+    assert not brain._resume_after_escape
+    assert "갇혔다" not in brain.status
+
+
+def test_robot_that_is_not_trapped_ends_exploration_as_before():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    _no_more_sweeps(brain)
+    brain.grid[:] = config.LOG_ODDS_MIN          # 집까지 길이 있다
+    brain._refresh_plan_grid()
+    brain._decide_next((1.0, 0.0, 0.0), exploring_possible=False)
+    assert brain.state == mission.RETURN
+    assert not brain._resume_after_escape
+    assert "갇혔다" not in brain.status
+
+
 def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map():
     brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
     for _ in range(config.LOW_MIN_SIGHTINGS):

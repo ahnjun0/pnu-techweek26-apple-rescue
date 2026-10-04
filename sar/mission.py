@@ -72,6 +72,8 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self._crumbs = []             # 지나온 길 (config.RETURN_CRUMB_SPACING 간격)
         self._retrace = []            # 지도에 길이 없을 때 되짚을 길
         self._retrace_index = 0
+        self._resume_after_escape = False   # 갇혀서 시작한 복귀 — 빠져나오면 탐색을 잇는다
+        self._escape_resumes = 0            # 그렇게 탐색을 이어 간 횟수
 
         self.goal = None            # 지금 가려는 월드 좌표 (x, y)
         self.path = []              # 웨이포인트 목록

@@ -287,6 +287,18 @@ class ExploreMixin:
 
         if self._targets_missing() and self._start_sweep(pose):
             return
+        # 갈 경계가 안 보이는데 집까지도 길이 없으면 "다 봤다" 가 아니라 "갇혔다" 다.
+        # ⚠️ 대회 월드(2026-10-05): 좁은 문으로 들어간 방에서 그 문이 지도에 좁은 여유로도
+        #    못 지나가게 칠해졌다. 방 밖이 전부 "갈 수 없음" 이 되어 422초에 탐색을 끝냈다
+        #    (478초 남음, 사과 1/2). 빠져나오는 일은 복귀의 되짚기가 한다 — 길이 다시
+        #    생기면 _return 이 탐색으로 돌려보낸다.
+        if (self._targets_missing()
+                and self._escape_resumes < config.EXPLORE_ESCAPE_RESUMES
+                and not self._home_reachable(pose)):
+            self._resume_after_escape = True
+            self.state = RETURN
+            self.status = "갇혔다 — 지나온 길로 빠져나간 뒤 다시 탐색한다"
+            return
         # ⚠️ 목표물을 못 찾았어도 **돌아온다.** 과제는 "찾아가서 시작점으로 돌아오기" 다.
         #    예전에는 그 자리에서 DONE 이었다 — apartment 에서 61초에 탐색을 포기하고
         #    시작점에서 4.55 m 떨어진 곳에 선 채 끝났다.

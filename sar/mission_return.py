@@ -11,7 +11,7 @@ from . import common
 from . import config
 from . import follower
 from . import planner
-from .mission_state import DONE, _tally
+from .mission_state import DONE, EXPLORE, _tally
 
 
 def retrace(crumbs, join=None):
@@ -105,12 +105,37 @@ class ReturnMixin:
         self._no_path_age = 0.0
         self._retrace = []          # 지도 경로가 다시 생겼다. 되짚기는 버린다
 
+        if self._resume_after_escape:
+            # 갇혀서 시작한 복귀다. 집까지 길이 생겼으면 빠져나온 것이다.
+            self._resume_after_escape = False
+            if self._targets_missing() and self.elapsed < self._return_deadline(pose):
+                self._escape_resumes += 1
+                self._return_age = 0.0
+                self._clear_goal()
+                self.state = EXPLORE
+                self.status = "빠져나왔다 — 탐색을 이어 간다"
+                _tally("갇힘: 빠져나와 탐색을 이어 감")
+                return 0.0, 0.0
+
         speed, turn, status, self.path_index = follower.step(
             pose, self.path, ranges, self.path_index,
             current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
             allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
         self.status = f"RETURN — {status} ({gap:.2f} m 남음)"
         return speed, turn
+
+    def _home_reachable(self, pose):
+        """지금 자리에서 집까지 계획기로 길이 나오나 (_replan 과 같은 순서: 평소, 안 되면 좁게).
+
+        ⚠️ exact=True 다. 아니면 plan() 이 막힌 목표를 근처 칸으로 바꿔 치워 "길이 있다" 고
+           답한다 (planner.plan 의 설명 참고) — 갇힌 로봇도 언제나 집에 갈 수 있게 보인다.
+        """
+        home = self.start_pose[:2]
+        return bool(planner.plan(self.plan_grid, pose[:2], home,
+                                 people=self._people_xy, exact=True)
+                    or planner.plan(self.plan_grid, pose[:2], home,
+                                    margin=config.PLANNER_SQUEEZE_MARGIN,
+                                    people=self._people_xy, exact=True))
 
     # ------------------------------------------------------------------
 
