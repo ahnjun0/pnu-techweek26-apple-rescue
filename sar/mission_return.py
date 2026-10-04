@@ -37,6 +37,18 @@ def retrace(crumbs, join=None):
         i = int(near[0]) if near.size else i - 1
 
 
+def _first_metres(points, metres):
+    """꺾은선 points 의 앞에서부터 길이가 metres 에 닿는 점까지."""
+    out = [points[0]]
+    total = 0.0
+    for a, b in zip(points, points[1:]):
+        out.append(b)
+        total += common.distance(*a, *b)
+        if total >= metres:
+            break
+    return out
+
+
 class ReturnMixin:
     """RETURN 상태와 복귀 마감."""
 
@@ -70,6 +82,18 @@ class ReturnMixin:
         if self._since_replan >= config.MISSION_REPLAN_EVERY \
                 or planner.path_is_blocked(self.path, self.plan_grid):
             self._replan(pose)
+
+        # 지도에 길은 있는데 한 자리에서 맴돌면 들어온 길을 조금 되짚어 나온다
+        # (config.RETURN_STALL_TIME 설명 참고). 들어온 길은 이미 한 번 지나간 길이다.
+        if self._unstick:
+            return self._back_out(pose, ranges, dt, gap)
+        if self._stalled(pose, dt) and self.path and len(self._crumbs) >= 2:
+            trail = [pose[:2]] + retrace(self._crumbs)
+            self._unstick = _first_metres(trail, config.RETURN_UNSTICK_DISTANCE)
+            self._unstick_index = 0
+            self._stall_anchor = None       # 되짚는 동안의 맴돎은 새로 잰다
+            _tally("복귀: 맴돌아서 들어온 길을 조금 되짚음")
+            return self._back_out(pose, ranges, dt, gap)
 
         if not self.path:
             # 계획이 안 된다. 가만히 서서 다시 시도만 하면 영영 못 돌아간다
@@ -127,6 +151,30 @@ class ReturnMixin:
             current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
             allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
         self.status = f"RETURN — {status} ({gap:.2f} m 남음)"
+        return speed, turn
+
+    def _stalled(self, pose, dt):
+        """RETURN_STALL_RADIUS 안에 RETURN_STALL_TIME 넘게 머물렀나."""
+        if (self._stall_anchor is None
+                or common.distance(*self._stall_anchor, *pose[:2]) > config.RETURN_STALL_RADIUS):
+            self._stall_anchor = pose[:2]
+            self._stall_age = 0.0
+            return False
+        self._stall_age += dt
+        return self._stall_age > config.RETURN_STALL_TIME
+
+    def _back_out(self, pose, ranges, dt, gap):
+        """들어온 길을 조금 되짚는다. 끝에 닿거나 거기서도 막히면 다시 짠다."""
+        speed, turn, status, self._unstick_index = follower.step(
+            pose, self._unstick, ranges, self._unstick_index,
+            current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
+            allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
+        if status == follower.ARRIVED or self._stalled(pose, dt):
+            self._unstick = []
+            self._stall_anchor = None
+            self._replan(pose)
+            return 0.0, 0.0
+        self.status = f"복귀 — 막혀서 들어온 길을 조금 되짚는다 ({gap:.2f} m 남음)"
         return speed, turn
 
     def _home_reachable(self, pose):

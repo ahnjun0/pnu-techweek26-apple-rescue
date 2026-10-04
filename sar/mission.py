@@ -74,6 +74,10 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self._retrace_index = 0
         self._resume_after_escape = False   # 갇혀서 시작한 복귀 — 빠져나오면 탐색을 잇는다
         self._escape_resumes = 0            # 그렇게 탐색을 이어 간 횟수
+        self._stall_anchor = None           # 복귀 중 맴돎 감시: 기준 자리
+        self._stall_age = 0.0               # 그 자리 반경 안에 머문 시간 [s]
+        self._unstick = []                  # 지도 길은 있는데 막혔을 때 조금 되짚을 길
+        self._unstick_index = 0
 
         self.goal = None            # 지금 가려는 월드 좌표 (x, y)
         self.path = []              # 웨이포인트 목록

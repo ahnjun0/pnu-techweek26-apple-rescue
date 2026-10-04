@@ -968,6 +968,49 @@ def test_return_retraces_the_trail_when_the_map_has_no_path():
     assert speed > 0.0, "되짚는 길로 실제로 움직여야 한다"
 
 
+def _stuck_return_brain():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.grid[:] = config.LOG_ODDS_MIN                      # 지도에는 집까지 길이 있다
+    brain._refresh_plan_grid()
+    brain._crumbs = [(0.0, 0.0), (0.0, 0.5), (0.0, 1.0), (0.5, 1.0), (1.0, 1.0)]  # 들어온 길
+    brain.state = mission.RETURN
+    return brain
+
+
+def test_return_backs_out_along_the_trail_when_stuck_although_the_map_has_a_path():
+    """지도에 집까지 길은 있는데 한 자리에서 맴돌기만 하면, 들어온 길을 조금 되짚어 나온다.
+
+    ⚠️ 회귀 방지. 대회 월드(2026-10-05): 화장실 사과를 방문한 자리에서 복귀를 시작했는데,
+       팽창 영역 안이라 주행기가 "주행 → 장애물 정지 → 제자리 회전" 을 되풀이하며 190초
+       동안 0.3 m 안에서 맴돌다 복귀 시간 초과로 멈췄다 (사과 2/2 를 찾고도 복귀 실패).
+       지도에 길이 **없을 때** 만 되짚게 되어 있었다.
+    """
+    brain = _stuck_return_brain()
+    pose = (1.0, 1.0, 0.0)                                   # 자리가 그대로다
+    for _ in range(int(config.RETURN_STALL_TIME / 0.064) + 2):
+        brain._return(pose, clear_lidar(), 0.064)
+    assert "막혀" in brain.status, brain.status
+    assert brain._unstick, "들어온 길을 되짚어야 한다"
+    end = brain._unstick[-1]
+    assert common.distance(*end, 0.0, 0.5) < 1e-6, f"1.5 m 만 되짚는다 (끝 {end})"
+
+
+def test_a_return_that_keeps_moving_never_backs_out():
+    brain = _stuck_return_brain()
+    for k in range(int(config.RETURN_STALL_TIME * 1.5 / 0.064)):
+        x = 1.0 - 0.01 * k                                   # 조금씩이라도 나아간다
+        brain._return((x, 1.0, math.pi), clear_lidar(), 0.064)
+    assert not brain._unstick and "막혀" not in brain.status
+
+
+def test_after_backing_out_the_robot_plans_home_again():
+    brain = _stuck_return_brain()
+    brain._unstick = [(1.0, 1.0), (0.5, 1.0)]
+    brain._return((0.5, 1.0, math.pi), clear_lidar(), 0.064)  # 되짚을 길 끝에 왔다
+    assert not brain._unstick
+    assert brain.path, "새 자리에서 집까지 다시 짠다"
+
+
 def _no_more_sweeps(brain):
     brain._sweep_points = [(9.0, 9.0)] * config.MISSION_SWEEP_POINTS
 
