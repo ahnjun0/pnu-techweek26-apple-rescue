@@ -34,8 +34,13 @@ class ApproachMixin:
             return escape
 
         target = self.targets.nearest_unvisited(*pose[:2])
-        if target is None and self._verify_tried:
-            # 확인하러 온 경우다. 확정된 것이 없으면 그 후보를 목표로 삼는다.
+        if target is None:
+            # 확정 전 후보도 목적지로 쓴다. 다가가는 동안 본 횟수가 쌓이면 확정된다.
+            # ⚠️ 예전에는 확인하러 온 경우(_verify_tried)에만 그랬다. 그래서 탐색 중
+            #    끼어든 APPROACH 는 다음 틱에 곧바로 EXPLORE 로 나갔고, 후보 추정이
+            #    조금씩 움직여 _interrupted_for 에도 안 걸려 또 끼어들었다 — 상태줄만
+            #    "본 것부터 확인한다" 였다. 대회 월드(2026-10-05): 화장실 사과를 22회
+            #    보고(확정 25회) 떠났다. 배준호(bae-junho 브랜치)가 짚은 고침이다.
             target = self.targets.best_unconfirmed()
         if target is None:
             self._leave_approach(pose)

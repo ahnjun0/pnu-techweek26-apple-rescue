@@ -103,13 +103,18 @@ class ReturnMixin:
             return speed, turn
 
         self._no_path_age = 0.0
+        retraced = bool(self._retrace)
         self._retrace = []          # 지도 경로가 다시 생겼다. 되짚기는 버린다
 
         if self._resume_after_escape:
             # 갇혀서 시작한 복귀다. 집까지 길이 생겼으면 빠져나온 것이다.
             self._resume_after_escape = False
             if self._targets_missing() and self.elapsed < self._return_deadline(pose):
-                self._escape_resumes += 1
+                # ⚠️ 되짚어 빠져나온 것만 센다. 되짚기 없이 길이 바로 생겼으면 잠깐
+                #    막혔던 것이다 — 대회 월드(2026-10-05)에서 67·70초의 0.2초짜리
+                #    막힘 두 번에 한도를 다 써서, 575초에 정말 갇혔을 때 못 빠져나왔다.
+                if retraced:
+                    self._escape_resumes += 1
                 self._return_age = 0.0
                 self._clear_goal()
                 self.state = EXPLORE

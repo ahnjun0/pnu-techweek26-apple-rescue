@@ -693,6 +693,32 @@ def test_sighting_on_the_way_is_checked_first():
     assert brain.state == mission.APPROACH
 
 
+def test_after_interrupting_the_robot_really_heads_for_the_unconfirmed_candidate():
+    """끼어든 다음 틱에 APPROACH 가 그 후보로 **실제로** 간다 (EXPLORE 로 되튀지 않는다).
+
+    ⚠️ 회귀 방지. 확정 전 후보는 nearest_unvisited 에 안 잡히고 _verify_tried 도 비어
+       APPROACH 가 곧바로 EXPLORE 로 나갔다. 추정 위치가 매번 조금씩 바뀌어
+       _interrupted_for 에도 안 걸려 다음 틱에 또 끼어들었다 — 상태줄만 "본 것부터
+       확인한다" 를 찍고 실제로는 안 갔다. 대회 월드(2026-10-05): 화장실 사과를 22회
+       보고(확정 25회) 떠났다. 배준호(bae-junho 브랜치)가 짚은 문제와 같은 고침이다.
+    """
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain.goal = (3.0, 0.0)
+    brain.path = [(0.0, 0.0), (3.0, 0.0)]
+    brain.path_index = 0
+    for _ in range(config.DETECT_VERIFY_SIGHTINGS):
+        brain.targets.add(1.2, 0.0)
+    ranges = np.full(config.LIDAR_RESOLUTION, 3.0)
+    brain.step((0.0, 0.0, 0.0), ranges, 0.064)
+    assert brain.state == mission.APPROACH
+    brain.step((0.0, 0.0, 0.0), ranges, 0.064)
+    assert brain.state == mission.APPROACH, brain.status
+    assert brain.goal is not None and common.distance(*brain.goal, 1.2, 0.0) < 0.1, \
+        f"후보 쪽으로 경로를 짜야 한다 (목표 {brain.goal}, 상태줄 {brain.status})"
+
+
 # ⚠️ 여기 있던 test_far_target_does_not_interrupt_a_closer_goal 을 지웠다.
 #    "멀리 있는 목표물 때문에 가까운 탐색 목표를 버리면 안 된다" 는 규칙 자체를
 #    없앴기 때문이다. 목표물과 프론티어를 **같은 자격으로 거리 비교** 한 것이
@@ -920,6 +946,21 @@ def test_after_escaping_the_robot_goes_back_to_exploring():
     brain._return((1.0, 0.0, 0.0), clear_lidar(), 0.064)
     assert brain.state == mission.EXPLORE, brain.status
     assert not brain._resume_after_escape
+    # ⚠️ 되짚기 없이 길이 바로 생겼다 — 잠깐 막혔던 것이라 횟수에 세지 않는다.
+    #    대회 월드(2026-10-05): 67·70초에 0.2초짜리 막힘 두 번에 한도를 다 써서
+    #    575초에 정말 갇혔을 때는 빠져나와 탐색을 잇지 못했다.
+    assert brain._escape_resumes == 0
+
+
+def test_an_escape_that_needed_retracing_counts_toward_the_limit():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.RETURN
+    brain._resume_after_escape = True
+    brain._retrace = [(1.0, 0.0), (0.0, 0.0)]    # 지나온 길을 되짚던 중이다
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain._refresh_plan_grid()
+    brain._return((1.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert brain.state == mission.EXPLORE, brain.status
     assert brain._escape_resumes == 1
 
 
