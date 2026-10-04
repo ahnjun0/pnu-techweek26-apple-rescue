@@ -44,9 +44,8 @@ def main():
     sensors = sensors_mod.Sensors(robot)          # GPS 는 켜지 않는다
     odometry = localization.Odometry()
     brain = mission_mod.Mission(odometry.pose)
-    if config.DETECT_YOLO:
-        import yolo_check
-        brain.classify = yolo_check.load()   # 모델이 없으면 여기서 크게 알리고 멈춘다
+    import yolo_check
+    brain.classify = yolo_check.load()   # 모델이 없으면 여기서 크게 알리고 멈춘다
     display = viz_mod.Viz("sar — 자율 탐색")
     camera_fov = sensors.camera.getFov()
 

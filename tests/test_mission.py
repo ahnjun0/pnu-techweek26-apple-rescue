@@ -333,7 +333,7 @@ def test_goal_timeout_is_recorded_as_a_failure():
     ("방 두 개", fake_world.two_rooms(), (-2.0, -2.0, 0.0)),
 ])
 @pytest.mark.slow
-def test_explores_and_then_stops(monkeypatch, use_dwa, name, world, start):
+def test_explores_and_then_stops(name, world, start):
     """혼자 돌아다니다가 더 볼 곳이 없으면 멈춰야 한다 (무한루프 금지).
 
     제한 시간은 넉넉히 둔다 — 여기서 재는 것은 "끝나는가" 지 "빠른가" 가 아니다.
@@ -507,7 +507,7 @@ def test_unreachable_goal_is_failed_not_counted_as_arrival(monkeypatch):
     assert brain.blacklist.failures, "실패가 한 번도 기록되지 않았다"
 
 
-def test_keeps_looking_while_targets_are_missing(monkeypatch):
+def test_keeps_looking_while_targets_are_missing():
     """목표물을 아직 못 찾았으면, 갈 데가 남은 한 복귀하지 않는다.
 
     ⚠️ 회귀 방지. 예전 _frontiers_remain() 은 frontier_mask() 를 기본값
@@ -889,8 +889,7 @@ def test_return_retraces_the_trail_when_the_map_has_no_path():
     assert speed > 0.0, "되짚는 길로 실제로 움직여야 한다"
 
 
-def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map(monkeypatch):
-    monkeypatch.setattr(config, "LOW_OBSTACLES_ENABLED", True)
+def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map():
     brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
     for _ in range(config.LOW_MIN_SIGHTINGS):
         brain.low.add(0.5, 0.0)
@@ -901,9 +900,8 @@ def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map(monke
     assert (0.5, 0.0, 0.0, 0.0, 99) in brain._low_ghosts()
 
 
-def test_slip_is_detected_when_wheels_turn_but_the_compass_does_not(monkeypatch):
+def test_slip_is_detected_when_wheels_turn_but_the_compass_does_not():
     """카펫 턱: 바퀴는 1.2 rad/s 로 도는데 나침반은 그대로 → 후진하고 그 자리를 찍는다."""
-    monkeypatch.setattr(config, "SLIP_ENABLED", True)
     brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
     brain.state = mission.EXPLORE
     dt = 0.064
@@ -914,8 +912,7 @@ def test_slip_is_detected_when_wheels_turn_but_the_compass_does_not(monkeypatch)
     assert mapping.is_occupied(brain.plan_grid)[common.to_cell(0.0, 0.0)]
 
 
-def test_no_slip_when_the_compass_follows_the_wheels(monkeypatch):
-    monkeypatch.setattr(config, "SLIP_ENABLED", True)
+def test_no_slip_when_the_compass_follows_the_wheels():
     brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
     brain.state = mission.EXPLORE
     dt, theta = 0.064, 0.0

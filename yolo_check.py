@@ -33,7 +33,6 @@ def load():
             f"  찾은 곳: {path}",
             "  받는 법: python3 -c \"from ultralytics import YOLO; YOLO('yolo11n.pt')\"",
             "           (지금 폴더에 yolo11n.pt 가 생긴다) → 위 경로로 옮긴다.",
-            "  YOLO 없이 돌리려면 config.DETECT_YOLO = False.",
         ]))
     from ultralytics import YOLO
     model = YOLO(path)

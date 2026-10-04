@@ -310,9 +310,8 @@ def main():
     truth_src = truth_mod.Truth(robot)   # 정답 위치 — 채점 전용 (debug/truth.py)
     odometry = localization.Odometry()
     brain = mission_mod.Mission(odometry.pose)
-    if config.DETECT_YOLO:
-        import yolo_check
-        brain.classify = yolo_check.load()   # 모델이 없으면 여기서 크게 알리고 멈춘다
+    import yolo_check
+    brain.classify = yolo_check.load()   # 모델이 없으면 여기서 크게 알리고 멈춘다
     # 검증 중에도 지도를 눈으로 볼 수 있게 한다. SAR_VIZ=0 이면 알아서 꺼진다.
     display = viz_mod.Viz("mission_check — 검증하며 지도 보기")
     camera_fov = sensors.camera.getFov()
@@ -648,8 +647,7 @@ def main():
     print(f"  상태            : {brain.state}  ({brain.status})")
     confirmed = brain.targets.confirmed
     import detect as _detect
-    print(f"  YOLO 판정        : {dict(_detect.YOLO_COUNT) or '한 번도 안 돌았다'}"
-          f"  (모델 {'켬' if config.DETECT_YOLO else '끔'})")
+    print(f"  YOLO 판정        : {dict(_detect.YOLO_COUNT) or '한 번도 안 돌았다'}")
     print(f"  미끄러짐 감지     : {brain.slip_count} 회"
           + (f"  {[(round(x, 2), round(y, 2)) for x, y in brain.slip_spots]}" if brain.slip_spots else ""))
     hit = [o for o in low_objects if o["moved_at"] is not None]

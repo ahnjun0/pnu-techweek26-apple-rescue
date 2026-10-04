@@ -120,7 +120,7 @@ class Mission:
         self._people = []           # 이번 틱에 보이는 움직이는 것들 (x,y,vx,vy)
         self._people_xy = []        # 그중 위치만 (계획기용)
         self._watcher = people_mod.Watcher()   # 여러 스캔에 걸쳐 본 것만 믿는다
-        self._tracker = people_mod.Tracker()   # 칼만 필터로 속도를 거른다 (PEOPLE_KALMAN)
+        self._tracker = people_mod.Tracker()   # 칼만 필터로 속도를 거른다
         self.pose_fix = None        # 스캔 정합이 고쳐 준 위치 (없으면 None)
         self._field = None          # 스캔 정합용 거리장 (지도 갱신 때 다시 만든다)
         self._known = None          # 그때 "아는 칸" 마스크 (거리장과 함께 갱신)
@@ -154,8 +154,7 @@ class Mission:
             detect.scan(image, ranges, pose, camera_fov, self.targets,
                         self.leads, classify=self.classify, low_list=self.low)
             self._camera_frames += 1
-            if (config.LOW_OBSTACLES_ENABLED and self.classify is not None
-                    and self._camera_frames % config.YOLO_LOW_EVERY == 0):
+            if self.classify is not None and self._camera_frames % config.YOLO_LOW_EVERY == 0:
                 height, width = image.shape[:2]
                 detect.yolo_low_obstacles(self.classify(image), pose, width, height,
                                           camera_fov, self.low)
@@ -192,7 +191,7 @@ class Mission:
         # ⚠️ 고친 값은 여기서 쓰지 않고 바깥(컨트롤러)이 오도메트리에 되먹인다.
         #    그래야 다음 틱부터 그 자리에서 다시 누적된다.
         self.pose_fix = None
-        if config.SCANMATCH_ENABLED and self._ticks % config.SCANMATCH_EVERY == 0:
+        if self._ticks % config.SCANMATCH_EVERY == 0:
             if self._field is None:
                 self._field = scanmatch.likelihood_field(self.grid)
                 self._known = scanmatch.known_cells(self.grid)
@@ -200,22 +199,10 @@ class Mission:
             self.pose_fix = fixed
             pose = fixed
 
-        # 움직이는 것(사람)을 찾아 둔다. 계획기가 그 둘레를 비싸게 보고 경로를
-        # 우회시킨다. 지도를 갱신한 "뒤" 에 해야 방금 본 벽이 사람으로 안 잡힌다.
+        # 움직이는 것(사람)을 찾아 칼만 추적기로 속도를 거른다. 계획기가 그 둘레를 비싸게 보고
+        # 경로를 우회시킨다. 지도를 갱신한 "뒤" 에 해야 방금 본 벽이 사람으로 안 잡힌다.
         # (x, y, vx, vy) 목록. 계획기는 위치만, 주행기는 속도까지 쓴다.
-        # ⚠️ 스위치 하나로 끈다 (config.PEOPLE_ENABLED). 목록이 비면 하류 전체가
-        #    저절로 무동작이 된다 — 계획기의 사회적 비용, DWA 의 유령 점,
-        #    "가만히 있어도 된다" 허용까지.
-        #    끈 근거: **1단계 월드에는 사람이 아예 없는데** 검출이 0.28/틱,
-        #    헛것 비율 100% 였다 (maze0: 헛것 3237회). 후보의 26배가 "다리 모양"
-        #    에서 나오는데 벽 끝·문틈·상자 모서리가 그 규칙에 가장 잘 맞고,
-        #    "움직였나" 검사도 못 걸러낸다 — 로봇이 움직이면 고정물의 보이는
-        #    끝점이 벽을 따라 미끄러져 세계 좌표에서 진짜로 이동한다.
-        #    그 잡음이 계획기에 사회적 비용을 얹고 있었다.
-        self._people = (self._watcher.see(pose, ranges, self.grid)
-                        if config.PEOPLE_ENABLED else [])
-        if config.PEOPLE_ENABLED and config.PEOPLE_KALMAN:
-            self._people = self._tracker.update(self._people, dt)
+        self._people = self._tracker.update(self._watcher.see(pose, ranges, self.grid), dt)
         # ⚠️ 계획기에는 **확신이 서는 것만** 넘긴다 (config.PEOPLE_PLANNER_SCANS).
         #    DWA 에는 전부 넘긴다 — 국소 회피는 틀려도 싸다.
         self._people_xy = [(p[0], p[1]) for p in self._people
@@ -946,7 +933,7 @@ class Mission:
             return
         compass_turn = common.angle_diff(theta, self._slip_theta) / dt
         self._slip_theta = theta
-        if not config.SLIP_ENABLED or self.state in (SCAN, DONE):
+        if self.state in (SCAN, DONE):
             self._slip_for = 0.0
             return
         if abs(wheel_turn - compass_turn) > config.SLIP_TURN_DIFF:
@@ -966,8 +953,6 @@ class Mission:
 
     def _low_points(self):
         """계획에서 피할 낮은 물체: 카메라로 본 것 + 확정한 목표물 (사과도 LiDAR 에 안 보인다)."""
-        if not config.LOW_OBSTACLES_ENABLED:
-            return []
         return self.low.positions() + [t.position for t in self.targets.confirmed]
 
     def _refresh_plan_grid(self):
@@ -1080,7 +1065,7 @@ class Mission:
 
         # ⚠️ 미끄러진 자리 표시가 통로를 막아 탐색을 포기하는 일이 있었다 (카펫 서쪽 가장자리
         #    3곳 → 폭 1 m 띠, 307초에 미탐색 29곳 전부 '갈 수 없음'). 포기하기 전에 풀어 본다.
-        if config.SLIP_CLEAR_BEFORE_GIVEUP and self.slip_spots:
+        if self.slip_spots:
             self.slip_spots = []
             self._refresh_plan_grid()
             self.blacklist.clear()

@@ -202,14 +202,13 @@ class Watcher:
         # 둘 다 쓰면 재현율이 올라간다 — 어느 쪽이든 잡히면 움직임 투표로 거른다.
         found = []
         _tally("틱")
-        if config.PEOPLE_USE_MAP_DIFF and grid is not None:
+        if grid is not None:
             blobs = moving_blobs(pose, ranges, grid)
             _tally("후보: 지도차이", len(blobs))
             found.extend(blobs)
-        if config.PEOPLE_USE_LEGS:
-            legs = people(pose, ranges, grid)
-            _tally("후보: 다리모양", len(legs))
-            found.extend(legs)
+        legs = people(pose, ranges, grid)
+        _tally("후보: 다리모양", len(legs))
+        found.extend(legs)
         if not found:
             _tally("후보가 0개인 틱")
         self.recent.append(found)

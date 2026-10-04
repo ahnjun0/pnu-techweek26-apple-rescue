@@ -15,11 +15,6 @@ import config
 import follower
 
 
-@pytest.fixture(autouse=True)
-def dwa_on(monkeypatch):
-    monkeypatch.setattr(config, "FOLLOW_USE_DWA", True)
-
-
 def clear(distance=3.0):
     return np.full(config.LIDAR_RESOLUTION, distance, dtype=np.float64)
 

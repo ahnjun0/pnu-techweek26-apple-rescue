@@ -263,10 +263,9 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
                   + sum(common.distance(*a, *b) for a, b in zip(path, path[1:])))
         scored.append(((x, y), length, size))
 
-    # 큰 경계(새 방 입구)를 가까운 작은 경계들 뒤로 밀지 않게 — 크기만큼 거리를 깎는다 (끔이 기본).
+    # 큰 경계(새 방 입구)를 가까운 작은 경계들 뒤로 밀지 않게 — 크기만큼 거리를 깎는다.
     # ⚠️ 대회 조건 실행: 서쪽 방 입구 앞 131칸 경계를 끝까지 안 가고 작은 경계만 오가다 시간이 끝났다.
-    bonus = config.FRONTIER_SIZE_BONUS if config.FRONTIER_USE_SIZE else 0.0
-    scored.sort(key=lambda item: item[1] - bonus * item[2])
+    scored.sort(key=lambda item: item[1] - config.FRONTIER_SIZE_BONUS * item[2])
     return scored
 
 
