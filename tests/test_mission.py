@@ -705,18 +705,71 @@ def test_after_interrupting_the_robot_really_heads_for_the_unconfirmed_candidate
     brain = mission.Mission((0.0, 0.0, 0.0))
     brain.state = mission.EXPLORE
     brain.grid[:] = config.LOG_ODDS_MIN
-    brain.goal = (3.0, 0.0)
-    brain.path = [(0.0, 0.0), (3.0, 0.0)]
+    brain.goal = (4.0, 0.0)
+    brain.path = [(0.0, 0.0), (4.0, 0.0)]
     brain.path_index = 0
+    far = config.VERIFY_LOOK_RANGE + 0.5      # 바라보기 거리 밖 — 다가가야 한다
     for _ in range(config.DETECT_VERIFY_SIGHTINGS):
-        brain.targets.add(1.2, 0.0)
-    ranges = np.full(config.LIDAR_RESOLUTION, 3.0)
+        brain.targets.add(far, 0.0)
+    ranges = np.full(config.LIDAR_RESOLUTION, 5.0)
     brain.step((0.0, 0.0, 0.0), ranges, 0.064)
     assert brain.state == mission.APPROACH
     brain.step((0.0, 0.0, 0.0), ranges, 0.064)
     assert brain.state == mission.APPROACH, brain.status
-    assert brain.goal is not None and common.distance(*brain.goal, 1.2, 0.0) < 0.1, \
+    assert brain.goal is not None and common.distance(*brain.goal, far, 0.0) < 0.1, \
         f"후보 쪽으로 경로를 짜야 한다 (목표 {brain.goal}, 상태줄 {brain.status})"
+
+
+def _unconfirmed_candidate(brain, x, y):
+    for _ in range(config.DETECT_VERIFY_SIGHTINGS):
+        brain.targets.add(x, y)
+    candidate = brain.targets.best_unconfirmed()
+    assert candidate is not None and not candidate.confirmed
+    return candidate
+
+
+def test_robot_turns_to_look_at_a_close_unconfirmed_candidate_out_of_view():
+    """확정 전 후보 가까이 왔는데 카메라 밖이면 그쪽으로 돈다 — 보지 않으면 확정될 수 없다.
+
+    ⚠️ 회귀 방지. 대회 월드(2026-10-05, 녹화 재생): 화장실 사과를 1.4 m 앞에서 10회 보고,
+       돌아가는 경로를 따라 머리가 돌아 화면 밖으로 놓친 채 0.61 m 앞에 "도착" 해 방문으로
+       쳤다. 확정 전이라 목표물로 세지 않았고, 방문 표시 때문에 다시는 후보로도 안 골랐다.
+    """
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain.state = mission.APPROACH
+    candidate = _unconfirmed_candidate(brain, 0.0, 1.0)     # 왼쪽 1 m — 카메라 밖
+    speed, turn = brain._approach((0.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert speed == 0.0 and turn > 0.0, (speed, turn, brain.status)
+    assert not candidate.visited
+
+
+def test_robot_looks_at_an_unconfirmed_candidate_then_gives_up_if_it_never_confirms():
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain.state = mission.APPROACH
+    candidate = _unconfirmed_candidate(brain, 1.0, 0.0)     # 정면 1 m
+    speed, turn = brain._approach((0.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert speed == 0.0 and turn == 0.0, "서서 바라본다"
+    assert not candidate.visited
+    for _ in range(int(config.VERIFY_LOOK_TIME / 0.064) + 2):
+        if brain.state != mission.APPROACH:
+            break
+        brain._approach((0.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert candidate.visited, "끝내 확정이 안 되면 건너뛴다"
+    assert brain.state != mission.APPROACH
+
+
+def test_a_candidate_that_confirms_while_looking_is_approached_and_visited():
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain.state = mission.APPROACH
+    candidate = _unconfirmed_candidate(brain, 1.0, 0.0)
+    brain._approach((0.0, 0.0, 0.0), clear_lidar(), 0.064)
+    while not candidate.confirmed:                          # 바라보는 사이 확정됐다
+        brain.targets.add(1.0, 0.0)
+    speed, _ = brain._approach((0.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert brain.goal is not None, "확정되면 평소처럼 다가간다"
 
 
 # ⚠️ 여기 있던 test_far_target_does_not_interrupt_a_closer_goal 을 지웠다.

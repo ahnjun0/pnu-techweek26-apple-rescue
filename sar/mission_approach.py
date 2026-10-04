@@ -3,6 +3,8 @@
 mission.Mission 이 이 mixin 을 물려받는다. 상태(self.*)는 Mission.__init__ 이 만든다.
 """
 
+import math
+
 from . import common
 from . import config
 from . import follower
@@ -46,6 +48,14 @@ class ApproachMixin:
             self._leave_approach(pose)
             return 0.0, 0.0
         gap = common.distance(pose[0], pose[1], *target.position)
+
+        # 확정 전 후보는 가까이 와서 **바라본다** — 보지 않으면 확정될 수 없다.
+        # ⚠️ 이게 없을 때: 다가가는 경로를 따라 머리가 돌아 카메라 밖으로 놓친 채
+        #    "도착" 해 방문으로 쳤다. 확정 전이라 목표물로 세지 않았고, 방문 표시 때문에
+        #    다시는 후보로도 안 골랐다 (대회 월드 2026-10-05, 화장실 사과 10회에서 멈춤).
+        if (not target.confirmed and gap <= config.VERIFY_LOOK_RANGE
+                and self._goal_age <= config.APPROACH_TIMEOUT):
+            return self._look_at(pose, target, dt)
 
         # 충분히 다가갔으면 방문으로 친다.
         if gap <= config.APPROACH_DISTANCE:
@@ -126,6 +136,28 @@ class ApproachMixin:
         self.status = f"APPROACH — {status} ({gap:.2f} m 남음)"
         return speed, turn
 
+    def _look_at(self, pose, target, dt):
+        """확정 전 후보를 카메라 가운데에 두고 본 횟수가 쌓이기를 기다린다."""
+        bearing = common.wrap_angle(
+            math.atan2(target.y - pose[1], target.x - pose[0]) - pose[2])
+        if abs(bearing) > config.VERIFY_LOOK_ALIGN:
+            turn = max(-config.FOLLOW_MAX_TURN,
+                       min(config.FOLLOW_MAX_TURN, config.FOLLOW_TURN_GAIN * bearing))
+            self.status = (f"확정 전 후보 쪽으로 돈다 ({target.x:+.2f}, {target.y:+.2f})"
+                           f" — {target.sightings}회 봄")
+            return 0.0, turn
+        self._look_age += dt
+        if self._look_age > config.VERIFY_LOOK_TIME:
+            target.visited = True          # 바라봐도 안 되면 더 매달리지 않는다
+            self.status = f"바라봐도 확정이 안 된다 — 건너뛴다 ({target.sightings}회 봄)"
+            _tally("APPROACH: 바라봐도 확정 안 됨")
+            self._leave_approach(pose)
+            return 0.0, 0.0
+        self.status = (f"확정 전 후보를 바라본다 ({target.x:+.2f}, {target.y:+.2f})"
+                       f" — {target.sightings}회 봄")
+        return 0.0, 0.0
+
     def _leave_approach(self, pose):
+        self._look_age = 0.0
         self._clear_goal()
         self._decide_next(pose, exploring_possible=True)

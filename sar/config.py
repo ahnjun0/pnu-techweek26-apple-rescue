@@ -441,6 +441,13 @@ APPROACH_TARGET_RADIUS = 0.10   # [m] 목표물이 이 정도 굵기라고 본�
 APPROACH_DISTANCE = (ROBOT_RADIUS + ROBOT_CLEARANCE
                      + APPROACH_TARGET_RADIUS + 0.12)
 APPROACH_TIMEOUT = 40.0         # [s] 한 목표물에 이만큼 매달리면 포기한다
+# 확정 전 후보에 이만큼 가까워지면 더 다가가지 않고 그쪽을 바라보며 본 횟수를 쌓는다.
+# 다가가는 경로를 따라 머리가 돌면 카메라 밖으로 놓친 채 "도착" 해 버린다 — 대회 월드
+# (2026-10-05)에서 화장실 사과를 1.4 m 앞에서 10회 보고 놓친 뒤 방문으로 쳐 잃었다.
+# 그때 정면으로 보는 동안 1초에 6회씩 쌓였다 (4 → 25 회면 3.5초).
+VERIFY_LOOK_RANGE = 1.5         # [m]
+VERIFY_LOOK_ALIGN = 0.35        # [rad] 이 안이면 카메라(반각 0.52)가 본다고 친다
+VERIFY_LOOK_TIME = 6.0          # [s] 바라봐도 확정이 안 되면 건너뛴다
 # 대회 월드 apartment 의 사과 7개 중 빨강이 2개다.
 MISSION_TARGET_COUNT = 2        # 다 찾았다고 판단할 목표물 개수 (0 이면 끝없이 탐색)
 
