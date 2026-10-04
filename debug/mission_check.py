@@ -416,21 +416,32 @@ def main():
     if movie:
         robot.movieStartRecording(movie, 1280, 720, 0, 90, 1, False)
         print(f"  영상 녹화 시작: {movie}")
+    # 재생 비교용 녹화 (debug/replay_check.py). SAR_RECORD=경로.pkl.gz 일 때만 — 판단에는 끼어들지 않는다.
+    record_path = os.environ.get("SAR_RECORD")
+    recorder = None
+    if record_path:
+        from debug import replay_check
+        recorder = replay_check.Recorder(timestep, dt, camera_fov)
+        brain.classify = recorder.wrap_classify(brain.classify)
     while True:
         if robot.step(timestep) == -1:
             terminated = True
             break
         tick += 1
         left, right = sensors.read_encoders()
-        odometry.update(left, right, dt, compass_values=sensors.read_compass())
+        compass = sensors.read_compass()
+        odometry.update(left, right, dt, compass_values=compass)
         pose = odometry.pose
 
         ranges = sensors.read_lidar()
         image = (sensors.read_camera_bgr()
                  if tick % config.DETECT_EVERY == 0 else None)
+        taken = recorder.inputs(left, right, compass, ranges, image) if recorder else None
         speed, turn = brain.step(pose, ranges, dt,
                                  image=image, camera_fov=camera_fov,
                                  wheel_turn=odometry.wheel_turn_rate)
+        if recorder:
+            recorder.outputs(taken, brain, odometry, speed, turn, pose)
         sensors.drive(speed, turn)
 
         # 스캔 정합이 위치를 고쳐 줬으면 오도메트리에 되먹인다.
@@ -678,6 +689,10 @@ def main():
             sensors.stop()
             break
 
+    if recorder and not terminated:
+        recorder.save(record_path)
+        print(f"  재생 비교용 녹화: {record_path} (틱 {len(recorder.data['ticks'])}개)")
+        sys.stdout.flush()
     if movie and not terminated:
         robot.movieStopRecording()
         while not robot.movieIsReady():          # 인코딩이 끝날 때까지 기다린다
