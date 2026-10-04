@@ -2,14 +2,18 @@
 
 위에서 내려다본 지도: 로봇이 그 순간까지 그린 점유 격자(기록을 재생해 다시 그린다)
 + 실제 경로(정답) + 로봇 추정 경로 + 보행자 + 빨간 사과 + 카펫 영역(표시용).
+
+쓰는 법:  python docs/발표/make_gifs.py --run-best <채점 실행 폴더> --run-carpet <채점 실행 폴더> [full carpet apple ped retrace]
+  실행 폴더 = debug/mission_check.py 가 SAR_OUT 에 남긴 tape.npz·trace.csv·frames.npz 가 있는 곳.
+  발표 GIF 는 9/30 대회 설정 실행 두 개(포기 전 풀기, 바퀴 반지름 보정 전)로 만들었다.
 """
+import argparse
 import csv
 import math
 import os
 import sys
 
-os.environ["SAR_PROFILE"] = "apartment"
-REPO = "/Users/junyeongahn/dev/projects/robot_hack/.claude/worktrees/presentation-doc"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO)
 
 import matplotlib
@@ -25,9 +29,7 @@ from sar import mapping
 from sar import detect
 
 config.apply_timestep(64)
-OUT = "/tmp/deck/gif"
-RUN_BEST = "/Users/junyeongahn/dev/projects/robot_hack/debug/out/ab_1938_포기전풀기"
-RUN_CARPET = "/Users/junyeongahn/dev/projects/robot_hack/debug/out/ab_1739_보정전"
+OUT = os.path.join(REPO, "docs", "발표", "assets", "gif")   # --out 으로 바꾼다
 
 KFONT = "Apple SD Gothic Neo"
 if KFONT not in {f.name for f in font_manager.fontManager.ttflist}:
@@ -164,7 +166,14 @@ def save(frames, name, fps):
 
 
 if __name__ == "__main__":
-    which = sys.argv[1:] or ["full", "carpet", "apple", "ped", "retrace"]
+    parser = argparse.ArgumentParser(description="채점 실행 기록으로 발표용 GIF 를 만든다")
+    parser.add_argument("which", nargs="*", default=["full", "carpet", "apple", "ped", "retrace"])
+    parser.add_argument("--run-best", required=True, help="전체 주행·사과·보행자·되짚기 장면 실행 폴더")
+    parser.add_argument("--run-carpet", required=True, help="카펫 미끄러짐 장면 실행 폴더")
+    parser.add_argument("--out", default=OUT, help="GIF 를 쓸 폴더")
+    args = parser.parse_args()
+    which, RUN_BEST, RUN_CARPET, OUT = args.which, args.run_best, args.run_carpet, args.out
+    os.makedirs(OUT, exist_ok=True)
     WHOLE = (-13.2, 1.2, -13.8, 0.6)
     if "full" in which:
         topdown(RUN_BEST, 0, 483, 2.0, "gif1_full.gif", WHOLE, "전체 주행", fps=15, trail_from=0)
