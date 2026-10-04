@@ -50,32 +50,6 @@ def column_bearings(width, fov):
     return -np.arctan(normalised)
 
 
-def blobs(image_bgr, fov):
-    """영상에서 빨간 덩어리를 찾는다.
-
-    돌려주는 것: [(픽셀수, 방위각 [rad], 화면상 각폭 [rad]), ...] 큰 것부터.
-    각폭은 "그 거리에 그만한 물체가 맞는가" 를 확인하는 데 쓴다.
-    """
-    mask = red_mask(image_bgr)
-    count, _, stats, centroids = cv2.connectedComponentsWithStats(mask, 8)
-    bearings = column_bearings(image_bgr.shape[1], fov)
-
-    found = []
-    for label in range(1, count):
-        area = int(stats[label, cv2.CC_STAT_AREA])
-        if area < config.DETECT_MIN_BLOB_PIXELS:
-            continue
-        centre_x = float(centroids[label][0])
-        bearing = float(np.interp(centre_x, np.arange(len(bearings)), bearings))
-
-        left = int(stats[label, cv2.CC_STAT_LEFT])
-        right = left + int(stats[label, cv2.CC_STAT_WIDTH]) - 1
-        span = abs(float(bearings[max(0, left)] - bearings[min(right, len(bearings) - 1)]))
-        found.append((area, bearing, span))
-    found.sort(key=lambda item: -item[0])
-    return found
-
-
 def blob_boxes(image_bgr):
     """빨간 덩어리를 **상자** 로 돌려준다 (카메라만으로 거리를 잴 때 쓴다).
 
@@ -198,7 +172,7 @@ def yolo_verdict(box, detections):
 
 def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=None,
                  low_list=None):
-    """카메라만으로 목표물 위치를 낸다 (DETECT_RANGING == "camera").
+    """카메라만으로 목표물 위치를 낸다.
 
     classify 를 주면 모양 검사를 통과한 덩어리에 한해 YOLO 에 묻는다 (한 장에 한 번).
     """
@@ -264,62 +238,6 @@ def _scan_camera(image_bgr, pose, fov, target_list, lead_list=None, classify=Non
         target_list.add(x, y)
         placed += 1
     return placed, rejected
-
-
-def size_is_consistent(span, distance, radius=None):
-    """그 거리에 있는 물체가 화면에서 그만한 각폭으로 보이는 게 맞는가.
-
-    반지름 r 인 물체를 거리 d 에서 보면 각폭은 대략 2*atan(r/d) 다.
-    카메라가 본 각폭이 그것과 크게 어긋나면, 방위각과 거리가 서로 다른 물체를
-    가리키고 있다는 뜻이다 (예: 멀리 있는 목표물 앞으로 사람이 지나갈 때).
-    """
-    radius = config.APPROACH_TARGET_RADIUS if radius is None else radius
-    if distance <= 0.0 or span <= 0.0:
-        return False
-    expected = 2.0 * math.atan(radius / distance)
-    ratio = span / expected
-    return 1.0 / config.DETECT_SIZE_TOLERANCE <= ratio <= config.DETECT_SIZE_TOLERANCE
-
-
-def range_at(ranges, bearing, span=None):
-    """그 방위를 보는 LiDAR 거리 [m]. 못 재면 None.
-
-    덩어리 중심 방향 하나만 보면 광선이 물체 옆을 스칠 수 있으므로 주변을 함께 본다.
-
-    ⚠️ 예전에는 그 창 안의 **최솟값** 을 썼다. 창 안에 목표물보다 가까운 것이
-       하나라도 있으면 거리가 짧게 나오고, 위치가 **로봇과 목표물 사이 빈 공간** 에
-       찍힌다 — 아무것도 없는 자리에 유령 목표물이 생긴다.
-       실측(무작위 월드 rand3): 검출 4개 중 2개가 빈 공간의 가짜였고, 그 둘을
-       확정·방문하고 3개를 채웠다고 판단해 76초 만에 복귀했다. 진짜 목표물 하나는
-       아예 못 찾았다. `size_is_consistent` 도 못 걸렀다 — 관용 2.5 는 거리가 2배
-       틀려도 통과시킨다 (비율 0.5 > 1/2.5).
-
-    그래서 **중앙값** 을 쓴다. 카메라가 덩어리의 각폭(span)을 알려주므로 그 폭 안만
-    본다. 폭 안은 대부분 목표물 표면이므로 중앙값은 목표물 거리에 붙고, 스치는
-    광선 한둘에 끌려가지 않는다.
-    """
-    ranges = np.asarray(ranges, dtype=np.float64)
-    angles = common.lidar_angles()
-    if len(angles) != len(ranges):
-        angles = np.linspace(-math.pi, math.pi, len(ranges), endpoint=False)
-
-    # 창은 덩어리 각폭의 절반. 너무 좁으면 광선이 한 개도 안 들어오므로 하한을 둔다.
-    half = math.radians(config.DETECT_BEARING_WINDOW)
-    if span is not None and span > 0.0:
-        half = max(half, span / 2.0)
-    near = np.abs(common.wrap_angle(angles - bearing)) <= half
-    values = ranges[near]
-    values = values[np.isfinite(values)
-                    & (values >= config.LIDAR_MIN_RANGE)
-                    & (values <= config.DETECT_MAX_RANGE)]
-    return float(np.median(values)) if len(values) else None
-
-
-def world_position(pose, bearing, distance):
-    """로봇 기준 (방위, 거리) → 월드 좌표 (x, y)."""
-    x, y, theta = pose
-    angle = theta + bearing
-    return (x + distance * math.cos(angle), y + distance * math.sin(angle))
 
 
 class Target:
@@ -522,36 +440,12 @@ def position_is_sane(x, y, grid=None):
 
 def scan(image_bgr, ranges, pose, fov, target_list, lead_list=None, classify=None,
          low_list=None):
-    """영상 한 장을 훑어 목표물 목록을 갱신한다.
+    """영상 한 장을 훑어 목표물 목록을 갱신한다. 거리는 카메라만으로 잰다 (_scan_camera).
 
     돌려주는 것: (이번에 위치까지 알아낸 탐지 수, 버린 탐지 수)
-    버리는 경우가 실제로 있다:
-      - LiDAR 평면보다 낮거나 높은 물체, 사거리 밖의 물체 → 거리를 못 잰다
-      - 방향과 거리가 서로 다른 물체를 가리킬 때 → 크기가 안 맞아 걸러진다
-    그때는 "봤지만 아직 모른다" 로 두고 가까이 가서 다시 본다.
+    ⚠️ 사과(지름 0.10 m)는 LiDAR 평면(0.173 m)보다 낮아 LiDAR 로는 거리를 잴 수 없다.
+    ranges 는 쓰지 않는다 (호출 형식을 지키려고 받는다).
     """
     if image_bgr is None:
         return 0, 0
-    if config.DETECT_RANGING == "camera":
-        return _scan_camera(image_bgr, pose, fov, target_list, lead_list, classify, low_list)
-
-    placed = 0
-    rejected = 0
-    for _, bearing, span in blobs(image_bgr, fov):
-        distance = range_at(ranges, bearing, span)
-        if distance is None:
-            # 봤지만 거리를 모른다 — **방위만이라도 남긴다** (LeadList 설명 참고).
-            if lead_list is not None:
-                lead_list.add(pose, bearing)
-            rejected += 1
-            continue
-        if not size_is_consistent(span, distance):
-            rejected += 1
-            continue
-        x, y = world_position(pose, bearing, distance)
-        if not position_is_sane(x, y):
-            rejected += 1
-            continue
-        target_list.add(x, y)
-        placed += 1
-    return placed, rejected
+    return _scan_camera(image_bgr, pose, fov, target_list, lead_list, classify, low_list)

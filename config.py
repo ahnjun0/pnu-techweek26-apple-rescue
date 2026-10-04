@@ -7,7 +7,6 @@
 """
 
 import math
-import os
 
 # ==========================================================================
 # 1. 로봇 디바이스 이름
@@ -43,8 +42,11 @@ WHEEL_BASE = 0.16           # TurtleBot3Burger.proto:44,132 (anchor y)
 # ⚠️ 로봇이 바뀌면 이 값도 다시 재야 한다.
 WHEEL_BASE_ODOM = 0.180
 # 오도메트리가 쓰는 바퀴 반지름. 주행 명령(sensors.drive)은 기하값 WHEEL_RADIUS 를 쓴다.
-# 연습·빈 월드에서는 기하값이 맞았다 (empty.wbt 1 m 직진 오차 0.3 cm, 32·64 ms 모두).
-WHEEL_RADIUS_ODOM = WHEEL_RADIUS
+# 빈 월드에서는 기하값이 맞았다 (empty.wbt 1 m 직진 오차 0.3 cm, 32·64 ms 모두).
+# ⚠️ apartment 바닥에서는 바퀴 회전으로 계산한 거리가 실제보다 **1.7% 짧다**
+#    (9/30 GUI 실행, 직진 38구간 중앙값 0.983, 범위 0.976~0.988 — 장소와 무관하게 일정).
+#    실제 로봇처럼 바닥에 맞춰 유효 반지름을 보정한다 (안 하면 60 m 에 약 1 m 가 쌓인다).
+WHEEL_RADIUS_ODOM = WHEEL_RADIUS / 0.983
 ROBOT_RADIUS = 0.13         # 몸체 외접 반경 0.110 + 여유. 팽창 반경의 기준
 
 # ── 실제 몸체 크기 (충돌 여부를 재는 기준) ────────────────────────────────────
@@ -102,24 +104,28 @@ LIDAR_ORIENTATION_VERIFIED = True
 #    "물리 해상도" 와 "제어율" 두 가지가 한꺼번에 변했다 (실험이 오염됐다).
 #    이제 컨트롤러가 이 값을 쓴다. 지금까지의 측정이 전부 16 ms 제어에서 나왔으므로
 #    값을 16 으로 맞춰 동작은 그대로 두고, 거짓말만 고쳤다.
-TIME_STEP = 16              # [ms] 컨트롤러 주기. 월드 basicTimeStep 의 배수여야 한다
+# 대회 월드(apartment.wbt)의 WorldInfo basicTimeStep 이 64 다. 컨트롤러는 시작할 때
+# apply_timestep(월드 주기) 로 이 값과 틱 단위 상수를 함께 맞춘다.
+TIME_STEP = 64              # [ms] 컨트롤러 주기. 월드 basicTimeStep 의 배수여야 한다
 
 # ==========================================================================
 # 4. 좌표계 · 지도
 #    규약 전문은 common.py 상단 참고. 여기서는 숫자만 정한다.
 # ==========================================================================
 MAP_RESOLUTION = 0.05       # [m/cell] 셀 한 변의 길이
-MAP_ORIGIN_X = -4.0         # [m] 격자 (row=0, col=0) 셀의 왼쪽아래 모서리 월드 좌표
-MAP_ORIGIN_Y = -4.0         # [m]
-MAP_WIDTH_CELLS = 160       # col 개수 → x 방향 8.0 m
-MAP_HEIGHT_CELLS = 160      # row 개수 → y 방향 8.0 m
+# 아파트 벽 27개가 x -12.4 ~ 0.0, y -13.1 ~ 0.0 에 있다 → 16x16 m 로 덮고 여유를 둔다.
+MAP_ORIGIN_X = -14.0        # [m] 격자 (row=0, col=0) 셀의 왼쪽아래 모서리 월드 좌표
+MAP_ORIGIN_Y = -15.0        # [m]
+MAP_WIDTH_CELLS = 320       # col 개수 → x -14 ~ +2 m
+MAP_HEIGHT_CELLS = 320      # row 개수 → y -15 ~ +1 m
 
 # ==========================================================================
-# 5. 시작 pose — worlds/practice.wbt 의 로봇 배치와 반드시 일치시킬 것
+# 5. 시작 pose — 대회 월드(apartment.wbt)의 로봇 배치와 반드시 일치시킬 것
+#    translation -0.3 -7.5 0 / rotation 0 0 1 3.14159 (서쪽을 봄)
 # ==========================================================================
-START_X = -2.5              # [m]
-START_Y = -2.5              # [m]
-START_THETA = 0.0           # [rad] +x 축을 바라봄
+START_X = -0.3              # [m]
+START_Y = -7.5              # [m]
+START_THETA = math.pi       # [rad] -x 축을 바라봄
 
 # ==========================================================================
 # 6. 튜닝 파라미터 (Phase 2 이후 실제로 쓰이기 시작한다)
@@ -276,8 +282,10 @@ PLANNER_CARVED_COST = 1.0
 
 # --- 프론티어 탐색 (exploration.py) ----------------------------------------
 FRONTIER_MIN_CLUSTER = 4            # [칸] 이보다 작은 프론티어 덩어리는 잡음으로 본다
-FRONTIER_SIZE_BONUS = 0.04          # [m/칸] 덩어리가 클수록 깎아 주는 거리
-FRONTIER_USE_SIZE = False           # 위 가산점을 쓸지 (9/30 20:40 대회 조건에서 재는 중)
+# 대회 조건(배경 조명 있음)에서 서쪽 방 입구 쪽 큰 경계를 가까운 작은 경계들보다 먼저 가게 한다.
+# 0.025 이상은 초반에 포기했다.
+FRONTIER_SIZE_BONUS = 0.01          # [m/칸] 덩어리가 클수록 깎아 주는 거리
+FRONTIER_USE_SIZE = True            # 위 가산점을 쓸지
 
 # --- 정보 이득으로 프론티어를 고를 것인가 --------------------------------------
 # 0 이면 끈다 (= 위 FRONTIER_SIZE_BONUS 로 근사한다).
@@ -610,11 +618,11 @@ MISSION_BACKUP_SECONDS = 1.0    # [s] 끼였을 때 빠져나오는 시간
 #    그때 **나침반 회전은 0~0.3 rad/s** 인데 바퀴는 1.2 rad/s 로 돈다 (평소 비율 0.87~1.14).
 #    녹화 재생: 문턱 0.6 으로 카펫 사건(302~309초)과 185 cm 튐(384~395초)을 모두 잡았다.
 #    잡히면 1초 후진하고, 그 자리를 계획용 지도에 찍어 다시 가지 않는다.
-SLIP_ENABLED = False            # 측정 전이라 꺼 둔다
+SLIP_ENABLED = True
 SLIP_TURN_DIFF = 0.6            # [rad/s] 바퀴 회전 속도와 나침반 회전 속도의 차이
 SLIP_SECONDS = 0.3              # [s] 이만큼 이어져야 미끄러짐으로 본다
 SLIP_MARK_RADIUS = 0.10         # [m] 미끄러진 자리를 계획용 지도에 벽으로 찍는 반경
-SLIP_CLEAR_BEFORE_GIVEUP = False   # 탐색을 포기하기 전에 미끄러진 자리 표시를 풀고 다시 찾는다
+SLIP_CLEAR_BEFORE_GIVEUP = True    # 탐색을 포기하기 전에 미끄러진 자리 표시를 풀고 다시 찾는다
 # 미끄러진 자리 표시의 수명 [s] (0 = 끝까지). 대회 조건에서는 포기할 일이 없어 표시가 끝까지
 # 남아 서쪽 입구로 가는 길목을 막았을 수 있다 (9/30 20:45 재는 중).
 SLIP_MARK_TTL = 0.0
@@ -713,7 +721,7 @@ PEOPLE_PAIR_WITHIN = 0.8        # [m] 이 안에 있는 다리 둘을 사람 하
 #    문턱 0.15 m/s 를 넘는다.
 #    그 잡음이 계획기에 사회적 비용을 얹고 DWA 에 유령 장애물을 만들고 있었다.
 #    2단계(사람 있는 월드)에서 다시 켤 값은 따로 판단한다.
-PEOPLE_ENABLED = False
+PEOPLE_ENABLED = True
 
 PEOPLE_VOTE_SCANS = 9           # 최근 몇 스캔을 함께 볼 것인가 (1 이면 투표 안 함)
 # ⚠️ 3 에서 2 로 내렸다. 9틱 창에서 3스캔을 요구하니 **그룹의 34% 가 기각** 됐다
@@ -836,7 +844,7 @@ PEOPLE_COST_WEIGHT = 4.0        # 사람 바로 위의 비용 배수 (가장자�
 #    컸다 (people.py 머리말). 필터는 여러 스캔을 누적해 속도를 **걸러서** 낸다.
 # apartment (9/30): 사람 검출만 350 s / 칼만 추가 342 s, 둘 다 보행자 접촉 0 초
 #    (끈 기준은 3.8 초). 캔 오탐을 잡은 뒤 기본값으로 켤 예정이다.
-PEOPLE_KALMAN = False           # Watcher 결과를 칼만 추적기에 통과시킨다
+PEOPLE_KALMAN = True            # Watcher 결과를 칼만 추적기에 통과시킨다
 PEOPLE_KF_MEAS_STD = 0.23       # [m] 측정(위치) 표준편차 — 위 실측 23 cm
 PEOPLE_KF_ACCEL_STD = 1.0       # [m/s²] 등속 가정에서 벗어나는 정도 (걷다 멈추고 도는 사람)
 PEOPLE_KF_GATE = 0.6            # [m] 예측 위치에서 이 안의 측정만 같은 사람으로 본다
@@ -867,52 +875,16 @@ PEOPLE_KF_COAST = 0.5           # [s] 한동안 안 보여도 예측 위치로 �
 # ⚠️ apartment (9/30, debug/ab.sh) 에서도 다시 쟀다: 켜면 오차 21 → 164 cm,
 #    진짜 사과 1 → 0 개, 복귀 실패. 결과를 덮어쓰는 방식이 원인으로 보인다
 #    (localization.correct). 나침반 방향 + 부분 반영으로 섞는 안은 아직 안 쟀다.
-SCANMATCH_ENABLED = False
+SCANMATCH_ENABLED = True
 SCANMATCH_EVERY = 8             # N 틱마다 한 번만 (성능)
 SCANMATCH_RANGE = 0.10          # [m] 한 번에 x/y 로 고칠 수 있는 최대량
-# ⚠️ SCANMATCH_STEP 은 없앴다. 훑는 간격은 격자 해상도(MAP_RESOLUTION)보다
-#    잘게 잡을 수 없는데, 0.025 m 로 적어 두니 칸 수 계산이 어긋나 실제 탐색
-#    범위가 설정값의 **두 배**가 됐다 (scanmatch.match 의 주석 참고).
-SCANMATCH_TURN = 0.05           # [rad] 한 번에 각도로 고칠 수 있는 최대량 (약 3도)
-SCANMATCH_TURN_STEPS = 3        # 각도를 한쪽으로 몇 칸 훑을지
 SCANMATCH_MIN_POINTS = 40       # 광선이 이보다 적으면 믿지 않는다
-# 제자리보다 이만큼은 좋아져야 pose 를 옮긴다 (거리변환 칸 단위의 평균 비용 차이).
-# ⚠️ 이게 없으면 우도장이 평평할 때 잡음이 고른 자리로 그냥 옮겨간다.
-#    긴 균일 복도가 정확히 그렇다 — 진행 방향으로 특징이 없다.
-#    실측(corridor2): 직진 중 40초에 오도메트리 오차 105 cm, 61초 만에 0/3 종료.
-# 값은 **목적을 달성하는 최소치** 로 고른다. 이 문턱의 목적은 복도 미끄러짐을
-# 막는 것이지 거리를 줄이는 것이 아니다. 크게 잡으면 특징이 있는 지도에서
-# 정상적인 보정까지 막혀 세금만 는다.
-#
-#   MIN_GAIN   corridor2          maze0   open0   comb0    목표물
-#   0          0/3 (오도 105cm)    38.4    16.9    47.2      9/12
-#   0.01       3/3 (오도 13.2cm)   47.3    26.0    87.0     12/12   ← 채택
-#   0.02       3/3 (오도 27.5cm)   58.9    23.3   1/3!      10/12
-#   0.05       3/3 (오도 12.5cm)   40.4    44.2    71.5     12/12
-#
-# ⚠️ 거리는 값에 대해 **단조롭지 않다** (maze0: 38.4→47.3→58.9→40.4). 값을 조금
-#    바꾸면 궤적이 통째로 갈라지기 때문이다. 그러니 "네 월드 합계가 제일 좋은 값"
-#    을 고르면 그건 표본에 맞춘 것이다. 목적에 직접 대응하는 지표(오도오차·목표물)
-#    로 재고 최소값을 쓴다 — 이것만이 지도가 달라져도 유효한 논리다.
-SCANMATCH_MIN_GAIN = 0.01
-
-# ⚠️ **성분별** 문턱은 전역 문턱과 따로 둔다. 전역을 올리면 맞춤 자체가 둔해져
-#    손해가 컸다 (0.05 로 올렸을 때 open0 이 18 m 더 달렸다). 반면 성분별 검사는
-#    "근거 없는 축으로는 움직이지 않는다" 만 하므로 세게 걸어도 맞춤을 해치지 않는다.
-#    필요한 이유: comb 는 이빨이 1.2 m 간격 × 길이 4 m 라, 이빨 사이가 폭 1.1 m 의
-#    **균일한 통로** 다. 진행 방향으로 특징이 없어 스캔이 미끄러진다.
-#    실측(comb1): 80초에 오도메트리 오차 42 cm, 끝까지 회복 못 하고 탐색률 53% 로
-#    종료 (comb0 은 같은 설정에서 내내 11 cm).
-SCANMATCH_COMPONENT_GAIN = SCANMATCH_MIN_GAIN * 5.0
-
 # --- 정밀 스캔 매칭 (scanmatch.match_fine) -----------------------------------
-# 9/30 녹화 재생(debug/replay_localization.py)으로 보니 격자 매칭(match)도 같은 주행에서
-# 오차를 186 → 38 cm 로 줄였다. 다만 5 cm 칸 단위라 카펫 턱에서 틱당 1 cm 씩 미끄러지는
-# 것을 바로 못 따라가고, 방향까지 건드린다. 그래서:
+# 9/30 녹화 재생으로 보니 5 cm 칸 단위 격자 매칭은 카펫 턱에서 틱당 1 cm 씩 미끄러지는
+# 것을 바로 못 따라가고, 방향까지 건드렸다. 그래서:
 #   - 거리장을 보간해 **연속값**으로 x, y 만 고친다 (방향은 나침반이 이미 정확하다)
 #   - 가우스-뉴턴. 정보행렬 JᵀJ 의 고윳값이 작은 방향(복도의 진행 방향)은 고치지 않는다
 #   - 먼 점(지도에 없는 사람·새 물체)은 SCANMATCH_FINE_CAP 에서 자른다
-SCANMATCH_METHOD = "grid"          # "grid" (기존) / "fine"
 SCANMATCH_FINE_ITERS = 6
 SCANMATCH_FINE_CAP = 0.20          # [m] 이보다 벽에서 먼 점은 맞춤에 안 쓴다
 SCANMATCH_FINE_MIN_EIG = 0.15      # 방향별 정보량 하한 (점 하나당, 1/칸² 단위의 평균)
@@ -964,15 +936,13 @@ DETECT_SAT_MIN = 150            # 채도 하한 — 바닥과 목표물을 가�
 DETECT_VALUE_MIN = 60           # 명도 하한 — 너무 어두운 것은 색을 믿을 수 없다
 DETECT_MIN_BLOB_PIXELS = 25     # 이보다 작은 덩어리는 잡음으로 버린다
 
-# --- 목표물까지 거리를 무엇으로 재나 --------------------------------------------
-# "lidar"  : 카메라 = 방위, LiDAR = 거리 (연습 월드 — 목표물이 LiDAR 높이까지 솟은 상자)
-# "camera" : 카메라만으로. 크기로 한 번, 바닥 위치로 한 번 재서 **둘이 맞아야** 받는다.
+# --- 목표물까지 거리 — 카메라만으로 잰다 (detect.camera_range) ---------------------
+# 크기로 한 번, 바닥 위치로 한 번 재서 **둘이 맞아야** 받는다.
 # ⚠️ apartment 의 사과는 반지름 0.05 m 로 꼭대기가 0.10 m 인데 LiDAR 평면은 0.153 m 다
 #    (TurtleBot3Burger.proto:37-39). LiDAR 로 재면 사과 뒤의 벽까지 재서 위치가 밀린다.
 #    그리고 시작점 옆 **소화기** 를 사과로 확정·방문했다 (실제 점수 0/2).
 #    기록된 프레임으로 확인: 진짜 사과는 두 거리가 1~7% 안에서 맞고, 소화기는 81%
 #    어긋나거나 밑동이 수평선 위였다 → 둘이 맞는 것만 받으면 사과만 남는다.
-DETECT_RANGING = "lidar"
 TARGET_RADIUS = 0.05            # [m] 사과 반지름 (RedApple.proto:58-59 boundingObject Sphere, scale 1)
 CAMERA_HEIGHT = 0.073           # [m] 확장슬롯 z 0.153 (TurtleBot3Burger.proto:38) + 대회 카메라 z -0.08 (apartment.wbt)
 CAMERA_FORWARD = 0.02           # [m] 확장슬롯 x -0.03 + 대회 카메라 x 0.05
@@ -1008,7 +978,7 @@ YOLO_REJECT = ("bottle", "cup", "vase", "wine glass", "fire hydrant")
 #    LiDAR 지도에 직접 찍으면 광선이 물체 위로 지나가며 "빈 칸"으로 지워 버린다.
 #    찾는 곳: 확정한 빨간 사과 / 모양 검사에서 떨어진 바닥의 빨간 덩어리(누운 캔 등) /
 #            YOLO 가 본 작은 물체 (YOLO_LOW_EVERY 장마다 한 번).
-LOW_OBSTACLES_ENABLED = False    # 측정 전이라 꺼 둔다 (debug/ab.sh 로 켜서 잰다)
+LOW_OBSTACLES_ENABLED = True
 YOLO_LOW_EVERY = 4               # 카메라 N 장마다 YOLO 로 낮은 물체를 찾는다 (64 ms 틱에서 약 0.5초)
 YOLO_LOW_CLASSES = ("apple", "orange", "sports ball", "banana", "bottle", "cup", "vase")
 # ⚠️ 2.5 m / 0.15 m / 2회 로 켰더니 멀리서 본 물체가 시선 방향으로 **번져** 점 29개 중
@@ -1091,7 +1061,8 @@ APPROACH_TARGET_RADIUS = 0.10   # [m] 목표물이 이 정도 굵기라고 본�
 APPROACH_DISTANCE = (ROBOT_RADIUS + ROBOT_CLEARANCE
                      + APPROACH_TARGET_RADIUS + 0.12)
 APPROACH_TIMEOUT = 40.0         # [s] 한 목표물에 이만큼 매달리면 포기한다
-MISSION_TARGET_COUNT = 3        # 다 찾았다고 판단할 목표물 개수 (0 이면 끝없이 탐색)
+# 대회 월드 apartment 의 사과 7개 중 빨강이 2개다.
+MISSION_TARGET_COUNT = 2        # 다 찾았다고 판단할 목표물 개수 (0 이면 끝없이 탐색)
 
 # --- 전역 시간 예산 -----------------------------------------------------------
 # ⚠️ 당일 월드를 받으면 MISSION_TIME_LIMIT 을 대회 제한 시간에 **반드시** 맞춘다.
@@ -1197,75 +1168,3 @@ def apply_timestep(step_ms):
         _TICK_ORIGINAL.setdefault(name, g[name])
         g[name] = max(1, int(round(_TICK_ORIGINAL[name] * _TICK_BASE_MS / step_ms)))
     g["TIME_STEP"] = int(step_ms)
-
-
-# =============================================================================
-# 대회 프로필 — `SAR_PROFILE=apartment` 로 켠다 (없으면 위의 연습 설정 그대로)
-# =============================================================================
-# 근거: 제공 repo 의 worlds/apartment.wbt (competition/01_facts.md 참고).
-# ⚠️ 위에서 이 값들로 **계산되는** 상수는 없다 (확인함) — 그래서 끝에서 덮어써도 안전하다.
-#    새 파생 상수를 위에 만들면 여기서 덮어쓴 값이 반영되지 않으니 주의한다.
-SAR_PROFILE = os.environ.get("SAR_PROFILE", "")
-if SAR_PROFILE == "apartment":
-    # WorldInfo basicTimeStep 64 — 컨트롤러 주기는 그 배수여야 한다 (Webots 규약).
-    TIME_STEP = 64
-    # 로봇 translation -0.3 -7.5 0 / rotation 0 0 1 3.14159 (서쪽을 봄).
-    # ⚠️ 대회 당일 시작 자세가 **공개되면 그 값으로** 바꾼다 (계획안: position & orientation 제공).
-    START_X = -0.3
-    START_Y = -7.5
-    START_THETA = math.pi
-    # 아파트 벽 27개가 x -12.4 ~ 0.0, y -13.1 ~ 0.0 에 있다 → 16x16 m 로 덮고 여유를 둔다.
-    # 연습 지도(8x8 m, 원점 -4,-4)로는 **시작점부터 지도 밖** 이었다.
-    MAP_ORIGIN_X = -14.0
-    MAP_ORIGIN_Y = -15.0
-    MAP_WIDTH_CELLS = 320        # x -14 ~ +2 m
-    MAP_HEIGHT_CELLS = 320       # y -15 ~ +1 m
-    # ⚠️ 목표 색·개수는 **당일 공개**. 지금은 빨간 사과 2개로 가정한다
-    #    (apartment 의 사과 7개 중 빨강이 2개). 공개되면 여기와 DETECT_* 를 고친다.
-    MISSION_TARGET_COUNT = 2
-    # ⚠️ apartment 바닥에서는 바퀴 회전으로 계산한 거리가 실제보다 **1.7% 짧다**
-    #    (9/30 GUI 실행, 직진 38구간 중앙값 0.983, 범위 0.976~0.988 — 장소와 무관하게 일정).
-    #    빈 월드를 같은 64 ms 로 돌리면 +0.2% 라 물리 주기 탓이 아니다. 원인은 모른다.
-    #    그대로 두면 60 m 에 약 1 m 가 쌓인다. 실제 로봇처럼 바닥에 맞춰 유효 반지름을 보정한다.
-    WHEEL_RADIUS_ODOM = WHEEL_RADIUS / 0.983
-    # 사과는 LiDAR 보다 낮다 — 거리는 카메라만으로 잰다 (DETECT_RANGING 설명 참고).
-    DETECT_RANGING = "camera"
-    # 보행자가 있다. 9/30 측정: 끄면 접촉 3.8초, 켜면(칼만 포함) 0초이고
-    # 납작한 캔을 거른 뒤 빨간 사과 2/2 를 방문했다 (끄면 1/2).
-    PEOPLE_ENABLED = True
-    PEOPLE_KALMAN = True
-    # 9/30 최종 (19:20 동결): 정밀 스캔 매칭 + 낮은 물체 장애물 + 미끄러짐 감지.
-    #   측정(apartment, 보행자 있음): 빨간 사과 1/2 방문, 과일 0/8 밀림, 위치 오차 최대 9 cm,
-    #   364초에 복귀, 시작점까지 실제 0.24 m.
-    #   (끈 상태: 과일 3/8 밀림, 오차 304 cm, 사과 0/2, 실제 2.07 m 떨어져 멈춤)
-    SCANMATCH_ENABLED = True
-    SCANMATCH_METHOD = "fine"
-    LOW_OBSTACLES_ENABLED = True
-    SLIP_ENABLED = True
-    # 19:48 추가: 미끄러진 자리 표시가 서쪽 통로를 막아 307초에 포기했었다.
-    #   포기 전에 표시를 풀고 다시 찾게 하자 **빨간 사과 2/2**, 482.8초 복귀, 실제 0.34 m.
-    SLIP_CLEAR_BEFORE_GIVEUP = True
-    # 21:51 추가: 약한 큰 경계 가산점. 대회 조건(배경 조명 있음)에서 서쪽 방 입구 쪽 큰 경계를
-    #   가까운 작은 경계들보다 먼저 가게 한다 → **사과 2/2**, 609.1초 복귀, 실제 0.22 m.
-    #   (0.025 이상은 초반에 포기했고, 시간을 1500초로 늘려도 순서가 그대로면 서쪽에 못 갔다.)
-    FRONTIER_USE_SIZE = True
-    FRONTIER_SIZE_BONUS = 0.01
-
-
-# --- 실행마다 값 바꾸기 (측정용) --------------------------------------------
-# SAR_SET="SCANMATCH_ENABLED=True;PLANNER_SOFT_WEIGHT=1.3" 처럼 주면 그 값으로 덮는다.
-# ⚠️ 파일을 고쳐 가며 재면 되돌리기를 잊거나 __pycache__ 가 옛 값을 물어 측정을
-#    날린 적이 있다. 환경변수는 그 실행에만 걸리고, 여러 실행을 동시에 돌릴 수 있다.
-#    없는 이름은 오타이므로 바로 멈춘다.
-def _apply_overrides(text):
-    import ast
-    g = globals()
-    for item in filter(None, (part.strip() for part in text.split(";"))):
-        name, _, value = item.partition("=")
-        name = name.strip()
-        if name not in g:
-            raise KeyError(f"SAR_SET: config 에 {name} 이 없다")
-        g[name] = ast.literal_eval(value.strip())
-
-
-_apply_overrides(os.environ.get("SAR_SET", ""))

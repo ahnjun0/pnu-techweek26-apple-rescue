@@ -9,6 +9,7 @@ Webots 를 켜기 전에 "혼자 탐색하고 멈추는가" 를 여기서 먼저
 
 import math
 
+import cv2
 import numpy as np
 
 import common
@@ -213,32 +214,35 @@ class FakeWorld:
     # --- 카메라 흉내 ---------------------------------------------------
 
     def camera(self, pose, fov=1.0, width=128, height=96):
-        """그 pose 에서 보이는 목표물을 그린 가짜 BGR 영상.
+        """그 pose 에서 보이는 목표물(바닥에 놓인 지름 2·TARGET_RADIUS 공)을 그린 가짜 BGR 영상.
 
-        진짜 렌더링이 아니라 "빨간 기둥이 화면 어디에 보이는가" 만 맞춘다.
-        detect.py 가 방위각을 제대로 뽑는지 확인하는 데는 그걸로 충분하다.
+        detect.camera_range 와 같은 핀홀 모형이다: 초점거리 f = (폭/2)/tan(fov/2),
+        카메라는 CAMERA_FORWARD 앞·CAMERA_HEIGHT 위, 수평을 본다.
+        공의 밑동 행 = 가운데 행 + f·CAMERA_HEIGHT/d, 반지름 = f·tan(asin(R/d)).
+        그래서 크기로 잰 거리와 바닥으로 잰 거리가 서로 맞는다 (진짜 사과처럼).
         """
         image = np.full((height, width, 3), 50, dtype=np.uint8)
         x, y, theta = pose
+        cam_x = x + config.CAMERA_FORWARD * math.cos(theta)
+        cam_y = y + config.CAMERA_FORWARD * math.sin(theta)
+        focal = (width / 2.0) / math.tan(fov / 2.0)
+        centre_row = (height - 1) / 2.0
+        centre_col = (width - 1) / 2.0
         for tx, ty in self.targets:
-            gap = math.hypot(tx - x, ty - y)
-            if gap > config.LIDAR_MAX_RANGE:
+            gap = math.hypot(tx - cam_x, ty - cam_y)
+            if gap > config.LIDAR_MAX_RANGE or gap <= config.TARGET_RADIUS:
                 continue
-            bearing = common.wrap_angle(math.atan2(ty - y, tx - x) - theta)
+            bearing = common.wrap_angle(math.atan2(ty - cam_y, tx - cam_x) - theta)
             if abs(bearing) > fov / 2:
                 continue
             # 가리는 것이 있으면 안 보인다 (벽 뒤의 목표물)
             if self._blocked_between(x, y, tx, ty):
                 continue
-            # 방위각 → 화면 x (detect.column_bearings 의 역변환)
-            centre = (width - 1) / 2.0
-            column = centre - math.tan(bearing) / math.tan(fov / 2) * (width / 2)
-            half = max(2, int(0.08 / gap / math.tan(fov / 2) * (width / 2)))
-            left = int(max(0, column - half))
-            right = int(min(width, column + half + 1))
-            top = int(height * 0.35)
-            bottom = int(height * 0.65)
-            image[top:bottom, left:right] = (0, 0, 255)
+            radius = focal * math.tan(math.asin(config.TARGET_RADIUS / gap))
+            column = centre_col - math.tan(bearing) * focal
+            bottom = centre_row + focal * config.CAMERA_HEIGHT / gap
+            cv2.circle(image, (int(round(column)), int(round(bottom - radius))),
+                       max(1, int(round(radius))), (0, 0, 255), thickness=-1)
         return image
 
     def _blocked_between(self, x0, y0, x1, y1):

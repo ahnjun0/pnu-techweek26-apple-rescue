@@ -198,9 +198,7 @@ class Mission:
             if self._field is None:
                 self._field = scanmatch.likelihood_field(self.grid)
                 self._known = scanmatch.known_cells(self.grid)
-            matcher = (scanmatch.match_fine if config.SCANMATCH_METHOD == "fine"
-                       else scanmatch.match)
-            fixed, _ = matcher(pose, ranges, self._field, known=self._known)
+            fixed, _ = scanmatch.match_fine(pose, ranges, self._field, known=self._known)
             self.pose_fix = fixed
             pose = fixed
 

@@ -9,7 +9,6 @@ import math
 import numpy as np
 import pytest
 
-import common
 import config
 import detect
 
@@ -96,40 +95,7 @@ def test_edges_match_the_field_of_view():
     assert abs(bearings[0]) == pytest.approx(FOV / 2, rel=0.02)
 
 
-def test_blob_reports_its_angular_width():
-    narrow = detect.blobs(paint_red(blank(), 60, 66), FOV)[0]
-    wide = detect.blobs(paint_red(blank(), 40, 90), FOV)[0]
-    assert wide[2] > narrow[2]
-
-
 # --- 방향과 거리가 같은 물체를 가리키는가 --------------------------------------
-
-def test_size_matches_at_the_right_distance():
-    """반지름 r 물체를 거리 d 에서 보면 각폭은 2*atan(r/d) 다."""
-    radius = config.APPROACH_TARGET_RADIUS
-    for distance in (0.6, 1.2, 2.5):
-        span = 2 * math.atan(radius / distance)
-        assert detect.size_is_consistent(span, distance)
-
-
-def test_size_rejects_a_near_reading_for_a_far_object():
-    """멀리 있는 목표물 앞으로 사람이 지나가면 LiDAR 가 짧은 거리를 준다.
-
-    그대로 믿으면 목표물이 사람 자리에 찍힌다 — 실제로 가짜 목표물 2개가 생겼다.
-    화면에서 작게 보이는데 거리가 가깝다고 하면 앞뒤가 안 맞는다.
-    """
-    far_span = 2 * math.atan(config.APPROACH_TARGET_RADIUS / 3.0)
-    assert not detect.size_is_consistent(far_span, 1.0)
-
-
-def test_size_rejects_a_far_reading_for_a_near_object():
-    near_span = 2 * math.atan(config.APPROACH_TARGET_RADIUS / 0.5)
-    assert not detect.size_is_consistent(near_span, 3.0)
-
-
-def test_size_check_handles_degenerate_input():
-    assert not detect.size_is_consistent(0.0, 1.0)
-    assert not detect.size_is_consistent(0.1, 0.0)
 
 
 def test_scan_rejects_an_inconsistent_fusion():
@@ -142,63 +108,10 @@ def test_scan_rejects_an_inconsistent_fusion():
     assert targets.targets == []
 
 
-def test_blob_bearing_follows_where_it_is_painted():
-    left = detect.blobs(paint_red(blank(), 5, 25), FOV)
-    right = detect.blobs(paint_red(blank(), 100, 120), FOV)
-    assert len(left) == 1 and len(right) == 1
-    assert left[0][1] > 0 > right[0][1]
-
-
-def test_tiny_speck_is_ignored():
-    image = blank()
-    image[50, 60] = (0, 0, 255)          # 한 픽셀
-    assert detect.blobs(image, FOV) == []
-
-
-def test_two_blobs_are_reported_separately():
-    image = paint_red(blank(), 10, 30)
-    paint_red(image, 90, 110)
-    assert len(detect.blobs(image, FOV)) == 2
-
-
 # --- LiDAR 거리 붙이기 --------------------------------------------------------
-
-def test_range_at_reads_the_lidar_in_that_direction():
-    ranges = np.full(config.LIDAR_RESOLUTION, np.inf)
-    angles = common.lidar_angles()
-    ranges[np.abs(angles) < 0.1] = 1.2
-    assert detect.range_at(ranges, 0.0) == pytest.approx(1.2)
-
-
-def test_range_at_returns_none_when_lidar_cannot_see_it():
-    """LiDAR 는 평면 한 층만 본다. 낮거나 높거나 먼 물체는 거리를 못 잰다.
-
-    worlds/camera_test.wbt 로 실증한 실제 상황이다.
-    """
-    assert detect.range_at(np.full(config.LIDAR_RESOLUTION, np.inf), 0.0) is None
-
-
-def test_range_at_ignores_readings_beyond_the_useful_range():
-    far = np.full(config.LIDAR_RESOLUTION, config.DETECT_MAX_RANGE + 1.0)
-    assert detect.range_at(far, 0.0) is None
 
 
 # --- 월드 좌표 ---------------------------------------------------------------
-
-@pytest.mark.parametrize("theta,bearing,expected", [
-    (0.0, 0.0, (1.0, 0.0)),                    # 동쪽을 보고 정면
-    (0.0, math.pi / 2, (0.0, 1.0)),            # 동쪽을 보고 왼쪽 → 북쪽
-    (math.pi / 2, 0.0, (0.0, 1.0)),            # 북쪽을 보고 정면
-    (math.pi, 0.0, (-1.0, 0.0)),               # 서쪽을 보고 정면
-])
-def test_world_position(theta, bearing, expected):
-    got = detect.world_position((0.0, 0.0, theta), bearing, 1.0)
-    assert got == pytest.approx(expected, abs=1e-9)
-
-
-def test_world_position_accounts_for_robot_offset():
-    got = detect.world_position((2.0, -1.0, 0.0), 0.0, 0.5)
-    assert got == pytest.approx((2.5, -1.0))
 
 
 # --- 목표물 목록 -------------------------------------------------------------
@@ -271,15 +184,6 @@ def test_mark_visited_needs_to_be_near():
 
 # --- 한 장 훑기 --------------------------------------------------------------
 
-def test_scan_places_a_target_in_front():
-    targets = detect.TargetList()
-    # 1.5 m 거리의 반지름 0.1 m 물체는 화면에서 약 7.6도 = 약 17 픽셀
-    image = paint_red(blank(), 55, 72)
-    placed, rejected = detect.scan(image, clear_lidar(1.5), (0.0, 0.0, 0.0),
-                                   FOV, targets)
-    assert placed == 1 and rejected == 0
-    assert targets.targets[0].x == pytest.approx(1.5, abs=0.2)
-
 
 def test_scan_counts_detections_it_cannot_range():
     """카메라엔 보이는데 LiDAR 가 거리를 못 재는 경우가 실제로 있다."""
@@ -313,74 +217,7 @@ def test_scan_without_an_image_does_nothing():
     assert detect.scan(None, clear_lidar(), (0.0, 0.0, 0.0), FOV, targets) == (0, 0)
 
 
-def test_repeated_scans_of_the_same_object_confirm_one_target():
-    """로봇이 조금씩 움직이며 같은 기둥을 계속 본다 → 목표물 하나여야 한다."""
-    targets = detect.TargetList()
-    image = paint_red(blank(), 55, 72)
-    for step in range(config.DETECT_MIN_SIGHTINGS + 2):
-        pose = (0.0 + step * 0.02, 0.0, 0.0)
-        detect.scan(image, clear_lidar(1.5), pose, FOV, targets)
-    assert len(targets.confirmed) == 1
-
-
-def test_a_stray_close_ray_does_not_pull_the_target_nearer():
-    """목표물 방위에 스치는 가까운 광선 하나가 위치를 끌어당기면 안 된다.
-
-    ⚠️ 회귀 방지. range_at() 이 창 안의 **최솟값** 을 썼다. 그러면 스치는 광선
-       하나 때문에 거리가 짧게 나오고, 목표물 위치가 **로봇과 목표물 사이 빈 공간**
-       에 찍힌다 — 아무것도 없는 자리에 유령 목표물이 생긴다.
-       실측(무작위 월드 rand3): 검출 4개 중 2개가 빈 공간의 가짜였고, 그 둘을
-       확정·방문하고 다 찾았다고 판단해 76초 만에 복귀했다 (진짜 하나는 못 찾음).
-    """
-    angles = common.lidar_angles()
-    ranges = np.full(config.LIDAR_RESOLUTION, 10.0)
-
-    bearing = 0.0
-    span = math.radians(6.0)          # 목표물이 6도로 보인다
-    inside = np.abs(common.wrap_angle(angles - bearing)) <= span / 2.0
-    ranges[inside] = 2.0              # 목표물은 2 m 에 있다
-
-    # 그 창 가장자리에 스치는 광선 하나만 0.8 m
-    edge = int(np.argmax(inside))
-    ranges[edge] = 0.8
-
-    got = detect.range_at(ranges, bearing, span)
-    assert got is not None
-    assert abs(got - 2.0) < 0.2, \
-        f"스치는 광선 하나에 끌려가면 안 된다: {got:.2f} m (진짜 2.0 m)"
-
-
 # --- 방위만 아는 단서 (lead) --------------------------------------------------
-
-def test_sighting_without_range_is_kept_as_a_lead():
-    """거리를 못 잰 관측을 버리지 않고 방위로 남긴다.
-
-    ⚠️ 회귀 방지. scan() 은 카메라가 빨간 덩어리를 찾아도 그 방위의 LiDAR 거리를
-       못 재면 그 관측을 **버렸다**. 주석에는 "가까이 가서 다시 본다" 고 적혀
-       있었으나 그런 장치가 없었다.
-       실측(comb0): 오른쪽 아래 구석 목표물을 보고도 기록이 없어 554초에 2/3 으로
-       복귀했다 — 그 구석에 1.87 m 보다 가까이 간 적이 없다.
-    """
-    import numpy as np
-
-    import config
-    import detect
-
-    # 빨간 덩어리가 정면에 보이는 영상
-    image = np.zeros((96, 128, 3), dtype=np.uint8)
-    image[30:70, 54:74] = (0, 0, 255)          # BGR 빨강
-
-    # LiDAR 는 그 방향에서 아무것도 못 잰다 (전부 사거리 밖)
-    ranges = np.full(config.LIDAR_RESOLUTION, np.inf)
-
-    targets = detect.TargetList()
-    leads = detect.LeadList()
-    placed, rejected = detect.scan(image, ranges, (0.0, 0.0, 0.0), 1.0,
-                                   targets, leads)
-
-    assert placed == 0, "거리를 모르는데 위치를 찍으면 안 된다"
-    assert rejected >= 1
-    assert len(leads.leads) >= 1, "봤다는 사실이 사라졌다 (단서가 안 남았다)"
 
 
 def test_lead_is_chased_only_after_enough_sightings_and_then_given_up():
@@ -471,14 +308,13 @@ def test_camera_range_agrees_for_an_apple_on_the_floor():
         assert abs(d_size - d_ground) < config.DETECT_RANGE_AGREEMENT * d_ground
 
 
-def test_camera_scan_rejects_a_tall_red_object(monkeypatch):
+def test_camera_scan_rejects_a_tall_red_object():
     """사과보다 큰 빨간 물체(소화기)는 두 거리가 어긋나 목표물이 되지 않는다.
 
     ⚠️ 회귀 방지. apartment 첫 완주에서 시작점 옆 소화기를 사과로 확정·방문했다
        (실제 점수 0/2). 기록된 프레임에서 소화기는 두 거리가 81% 어긋났다.
     """
     import cv2
-    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
     img = np.zeros((480, 640, 3), np.uint8)
     cv2.rectangle(img, (300, 120), (340, 300), (0, 0, 255), -1)   # 좁고 긴 빨간 기둥
     targets = detect.TargetList()
@@ -487,9 +323,8 @@ def test_camera_scan_rejects_a_tall_red_object(monkeypatch):
     assert placed == 0 and rejected == 1, (placed, rejected)
 
 
-def test_camera_scan_places_an_apple_where_it_is(monkeypatch):
+def test_camera_scan_places_an_apple_where_it_is():
     """카메라만으로 잰 사과 위치가 진짜 위치와 맞는다 (LiDAR 는 뒤의 벽을 본다)."""
-    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
     d = 1.5
     targets = detect.TargetList()
     # LiDAR 는 사과를 못 보고 3 m 뒤 벽을 본다 — 그래도 위치가 맞아야 한다
@@ -501,13 +336,12 @@ def test_camera_scan_places_an_apple_where_it_is(monkeypatch):
     assert abs(t.x - expect) < 0.15 and abs(t.y) < 0.05, (t.x, t.y)
 
 
-def test_camera_scan_rejects_a_far_tall_object_whose_ranges_almost_agree(monkeypatch):
+def test_camera_scan_rejects_a_far_tall_object_whose_ranges_almost_agree():
     """멀리 있는 소화기는 두 거리가 29% 만 어긋나 거리 검사를 통과했다 — 모양으로 거른다.
 
     ⚠️ 회귀 방지. apartment 195초: 상자 23x72, 크기로 2.4 m, 바닥으로 3.4 m.
     """
     import cv2
-    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
     img = np.zeros((480, 640, 3), np.uint8)
     cv2.rectangle(img, (300, 180), (322, 251), (0, 0, 255), -1)    # 23x72, 밑동 251행
     box = detect.blob_boxes(img)[0]
@@ -535,8 +369,7 @@ def _fake_yolo(label):
     ("bottle", 0, 0),           # 캔 → 버린다 (단서도 안 남긴다)
     (None, 0, 1),               # 못 봄 → 가까이 가서 다시 보도록 단서만
 ])
-def test_yolo_decides_what_a_red_blob_is(monkeypatch, label, placed_expected, lead_expected):
-    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
+def test_yolo_decides_what_a_red_blob_is(label, placed_expected, lead_expected):
     classify = _fake_yolo(label)
     targets, leads = detect.TargetList(), detect.LeadList()
     placed, _ = detect.scan(_apple_image(1.5), np.full(360, 3.0), (0.0, 0.0, 0.0),
@@ -546,9 +379,8 @@ def test_yolo_decides_what_a_red_blob_is(monkeypatch, label, placed_expected, le
     assert len(classify.calls) == 1
 
 
-def test_yolo_is_not_run_when_nothing_red_is_seen(monkeypatch):
+def test_yolo_is_not_run_when_nothing_red_is_seen():
     """YOLO 는 빨간 덩어리가 모양 검사를 통과했을 때만 돈다."""
-    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
     classify = _fake_yolo("sports ball")
     detect.scan(np.zeros((480, 640, 3), np.uint8), np.full(360, 3.0), (0.0, 0.0, 0.0),
                 1.0472, detect.TargetList(), classify=classify)
@@ -561,10 +393,9 @@ def test_yolo_keeps_an_apple_even_if_a_bottle_box_also_covers_it():
     assert detect.yolo_verdict(box, both) == "accept"
 
 
-def test_camera_scan_rejects_a_flat_red_object(monkeypatch):
+def test_camera_scan_rejects_a_flat_red_object():
     """바닥에 누운 캔(26x11)은 사과 크기지만 납작하다 — 모양으로 거른다 (apartment 캔 오탐)."""
     import cv2
-    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
     img = np.zeros((480, 640, 3), np.uint8)
     cv2.rectangle(img, (505, 247), (530, 257), (0, 0, 255), -1)     # 26x11, 녹화 그대로
     placed, _ = detect.scan(img, np.full(360, 5.0), (0.0, 0.0, 0.0), 1.0472,
@@ -572,7 +403,7 @@ def test_camera_scan_rejects_a_flat_red_object(monkeypatch):
     assert placed == 0
 
 
-def test_floor_position_of_an_object_straight_ahead(monkeypatch):
+def test_floor_position_of_an_object_straight_ahead():
     """화면 가운데 열, 수평선 아래 행 → 로봇 앞쪽 바닥의 점 (거리 = 높이 / tan(내려본 각))."""
     focal = 320.0 / math.tan(1.0472 / 2.0)
     d = 1.0
@@ -596,7 +427,6 @@ def test_low_obstacles_need_several_sightings_and_merge_nearby():
 def test_a_flat_red_can_on_the_floor_becomes_a_low_obstacle(monkeypatch):
     """누운 캔은 사과는 아니지만(모양 검사) 부딪히면 안 되는 물체로는 남는다."""
     import cv2
-    monkeypatch.setattr(config, "DETECT_RANGING", "camera")
     img = np.zeros((480, 640, 3), np.uint8)
     cv2.rectangle(img, (505, 247), (530, 257), (0, 0, 255), -1)
     low = detect.LowObstacles()

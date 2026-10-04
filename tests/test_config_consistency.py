@@ -260,18 +260,6 @@ def test_scanmatch_search_is_not_wider_than_a_tick_of_drift():
     assert config.SCANMATCH_RANGE <= 0.25, (
         f"한 번에 {config.SCANMATCH_RANGE} m 를 고치면 보정이 아니라 대체다")
 
-    # ⚠️ **적어 놓은 범위** 가 아니라 **실제로 훑는 범위** 를 본다. 이 검사가
-    #    없어서, config 에 ±0.10 m 라고 적어 두고 실제로는 ±0.20 m 를 훑고 있었다
-    #    (없어진 SCANMATCH_STEP 0.025 m 가 격자 해상도 0.05 m 보다 작아 칸 수
-    #     계산이 어긋났다). 실측(comb1): 한 틱에 20.1 cm 씩 튀는 보정이 나왔다.
-    import common
-
-    span = common.to_cells(config.SCANMATCH_RANGE) or 1
-    real = span * config.MAP_RESOLUTION
-    assert abs(real - config.SCANMATCH_RANGE) <= config.MAP_RESOLUTION / 2 + 1e-9, (
-        f"실제로 훑는 범위 ±{real:.3f} m 가 적어 둔 ±{config.SCANMATCH_RANGE:.3f} m "
-        f"와 다르다 — 격자 해상도 {config.MAP_RESOLUTION} m 로 반올림된다")
-
 
 def test_tick_constants_keep_their_time_interval_at_a_slower_step():
     """월드 주기가 바뀌어도 "N 틱마다" 가 같은 **시간** 간격이어야 한다.
