@@ -19,6 +19,7 @@ from matplotlib import font_manager
 import numpy as np
 from PIL import Image
 
+import common
 import config
 import mapping
 import detect
@@ -63,14 +64,12 @@ def map_rgb(grid):
 
 
 def extent():
-    x0, y0 = config.MAP_ORIGIN_X, config.MAP_ORIGIN_Y
-    r = config.MAP_RESOLUTION
-    return [x0, x0 + config.MAP_WIDTH_CELLS * r, y0, y0 + config.MAP_HEIGHT_CELLS * r]
+    return list(common.map_bounds())
 
 
 def scan_points(pose, ranges):
     x, y, th = pose
-    a = np.asarray(__import__("common").lidar_angles())
+    a = np.asarray(common.lidar_angles())
     r = np.asarray(ranges)
     ok = np.isfinite(r) & (r >= config.LIDAR_MIN_RANGE) & (r <= 3.0)
     return x + r[ok] * np.cos(th + a[ok]), y + r[ok] * np.sin(th + a[ok])
