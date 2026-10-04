@@ -7,7 +7,6 @@
 순수 numpy — Webots 없이 pytest 로 돈다.
 """
 
-import math
 from collections import deque
 
 import numpy as np
@@ -255,9 +254,6 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
             #    그리고 _replan 도 같은 규칙을 써야 한다 (한쪽만 넣었다가 maze0 이 3/3 -> 2/3).
             path = planner.plan(grid, robot_xy, (x, y), exact=True,
                                 margin=config.PLANNER_SQUEEZE_MARGIN)
-        if not path and config.PLANNER_TIGHT_MARGIN is not None:
-            path = planner.plan(grid, robot_xy, (x, y), exact=True,
-                                margin=config.PLANNER_TIGHT_MARGIN)
         if not path:
             continue
         # ⚠️ 첫 웨이포인트는 로봇이 **있는 칸의 중심** 이라 로봇 위치와 다르다.

@@ -77,19 +77,16 @@ def shape(xs, ys):
     return width, float(off.max()), len(xs)
 
 
-def legs(pose, ranges, grid=None, width_range=None, min_bulge=None):
+def legs(pose, ranges, grid=None, width_range=None):
     """다리로 보이는 조각들의 중심. [(x, y), ...]
 
     grid 를 주면 "지도가 빈 칸이라고 아는 자리" 의 조각만 남긴다 (고정물 제외).
     """
     width_range = config.PEOPLE_WIDTH_RANGE if width_range is None else width_range
-    min_bulge = config.PEOPLE_MIN_BULGE if min_bulge is None else min_bulge
     found = []
     for xs, ys in segments(pose, ranges, jump=config.PEOPLE_SEGMENT_JUMP):
-        width, bulge, count = shape(xs, ys)
+        width, _, _ = shape(xs, ys)
         if not (width_range[0] <= width <= width_range[1]):
-            continue
-        if bulge < min_bulge:          # 완전히 평평하면 벽 조각이다
             continue
         cx, cy = float(xs.mean()), float(ys.mean())
         if grid is not None:

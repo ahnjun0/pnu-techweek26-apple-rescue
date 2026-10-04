@@ -500,9 +500,6 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     # 후진에는 벌점을 준다. 목표가 뒤에 있으면 돌아서야지, 뒤로 기어가면 안 된다.
     # (앞이 전부 막혀 안전한 후보가 후진뿐이면 그때는 후진이 선택된다.)
     score -= config.DWA_REVERSE_PENALTY * (speed_flat < 0.0)
-    if config.DWA_TURN_KEEP and abs(current_turn) > 0.05:
-        # 방향을 매 틱 뒤집지 않게 — 지금 도는 쪽(또는 곧게)이면 가산점
-        score += config.DWA_TURN_KEEP * (np.sign(turn_flat) != -np.sign(current_turn))
 
     # 아무것도 안 하는 후보에 벌점. 사람이 보이면(allow_idle) 벌점을 끈다 —
     # 사람 근처에서는 가만히 있는 것이 옳다. 자세한 근거는 config 의 주석.

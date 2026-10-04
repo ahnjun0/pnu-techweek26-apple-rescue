@@ -185,15 +185,6 @@ FOLLOW_TRACKING_BUDGET = 0.12   # [m] 측정된 추종 오차 최대치 + 약간
 SAFETY_STOP_DISTANCE = ROBOT_RADIUS + ROBOT_CLEARANCE - FOLLOW_TRACKING_BUDGET
 
 # 평소 계획 여유
-# ⚠️ "벽은 매끈하니 외딴 점유칸(잡음)을 계획에서 지운다" 를 넣었다가 **뺐다.**
-#    지운 근거는 있었다 — 저장된 지도에서 점유칸 1063개 중 252개(24%)가 이웃 0개.
-#    그런데 로봇이 자기 스캔으로 벽을 부분적으로 지우면 벽이 **조각** 으로 남고,
-#    그 조각을 지우면 **없는 통로가 열린다.** 벽을 매끈하게 하려던 것이 벽을 깎는
-#    방향으로 작동한다 (테스트 7개가 잡았다 — 그중 test_return_does_not_freeze
-#    는 지도를 가른 벽이 뚫려 A* 가 길을 찾아 버렸다).
-#    → 지도를 고치지 않고, **도달 판정** 을 좁은 여유로 한 번 더 묻는다
-#      (exploration 의 재시도). 이 코드베이스가 계획기·DWA 에서 이미 쓰는 패턴이다.
-MAP_DESPECKLE_MIN_NEIGHBOURS = 0     # 0 = 끔. mapping.despeckle 은 남겨 둔다.
 
 PLANNER_INFLATION_MARGIN = ROBOT_CLEARANCE
 
@@ -218,11 +209,6 @@ FRONTIER_REACHABLE_MARGIN = 0.0
 PLANNER_SQUEEZE_SLACK = 0.05    # [m] 좁게 갈 때 정지거리 위로 남겨 둘 여유
 PLANNER_SQUEEZE_MARGIN = (SAFETY_STOP_DISTANCE + PLANNER_SQUEEZE_SLACK
                           - ROBOT_RADIUS)
-# 세 번째 단계 — 좁은 여유로도 안 되면 이 여유로 한 번 더 묻는다 (None = 끔).
-# ⚠️ 대회 조건(배경 조명 있음) 실행: 서쪽 방 구역으로 가는 통로(-9.3, -3.8~-3.5)가
-#    여유 0.15 로 막히고 0.10 으로 열렸다 (통로 폭 약 0.46~0.56 m, 로봇 지름 0.21 m).
-#    배경 없는 실행에서는 지도가 조금 달라 0.15 로 열렸고 그래서 사과 2/2 였다.
-PLANNER_TIGHT_MARGIN = None
 
 # --- 경로 계획 (planner.py) ------------------------------------------------
 # 팽창 반경 = 로봇 반경 + 여유. 안전거리가 평가 항목이므로 넉넉하게 준다.
@@ -324,18 +310,6 @@ FRONTIER_GAIN_WEIGHT = 0.1
 CAMERA_GAIN_RAYS = 9            # 360° 를 몇 갈래로 볼 것인가 (계산량)
 FRONTIER_MIN_DISTANCE = 0.25        # [m] 너무 가까운 프론티어는 무시 (제자리 맴돌기 방지)
 
-# --- 가까운 것부터 갈 것인가, 멀리 있는 큰 것부터 갈 것인가 --------------------
-# 0 이면 끈다 (= 순수 최단거리 = Holz et al. 의 CF 전략).
-#
-# 켜면 이 거리 안의 후보는 뒤로 미룬다. 뜻: "코앞의 자투리를 줍느라 왔다 갔다
-# 하지 말고, 방 하나를 끝내고 옮겨라."
-#
-# 출처: github.com/Leety09/autonomous-frontier-explorer 의 occupancy_grid.py 는
-#   가까운 후보(<0.8 m)를 버리고 1.5~5.0 m 를 우선한다. 주석 그대로:
-#   "This encourages the robot to drive to the other side of the room."
-# ⚠️ Holz et al.(ECMR 2011) 의 결론(최단거리가 좋다)과 반대 방향이므로,
-#    믿지 말고 16개 월드에서 재서 정한다.
-FRONTIER_NEAR_DEMOTE = 0.0      # [m] 실험으로 정한다
 
 # 목표는 도착 허용치의 몇 배 이상 떨어져 있어야 "가 볼 가치" 가 있는가.
 #
@@ -550,10 +524,6 @@ DWA_IDLE_PENALTY = DWA_WEIGHT_GOAL + DWA_WEIGHT_CLEARANCE + 0.1
 #    (tests/test_mission.py::test_a_single_tick_lidar_spike_is_ignored).
 #    뒤로 가는 것은 제자리에서 방향을 고르는 것보다 나쁜 선택이어야 한다.
 DWA_REVERSE_PENALTY = DWA_IDLE_PENALTY + 0.1
-# 직전에 돌던 방향을 유지하는 후보에 주는 가산점 (0 = 끔).
-# ⚠️ debug/doorway_report.py: 버벅인 19구간 중 15구간은 전진 후보가 **100% 안전** 했는데도
-#    회전 방향이 2초에 6~22번 뒤바뀌었다 — 여유가 아니라 방향 선택이 흔들린 것이다.
-DWA_TURN_KEEP = 0.0
 
 # DWA 가 후보를 "부딪힌다" 고 버리는 하한: 로봇 반경 + 이 값.
 # ⚠️ 이건 SAFETY_CORRIDOR_CLEARANCE(추종+정지 주행기의 통로 반폭)와 다른 값이다.
@@ -623,11 +593,6 @@ SLIP_TURN_DIFF = 0.6            # [rad/s] 바퀴 회전 속도와 나침반 회�
 SLIP_SECONDS = 0.3              # [s] 이만큼 이어져야 미끄러짐으로 본다
 SLIP_MARK_RADIUS = 0.10         # [m] 미끄러진 자리를 계획용 지도에 벽으로 찍는 반경
 SLIP_CLEAR_BEFORE_GIVEUP = True    # 탐색을 포기하기 전에 미끄러진 자리 표시를 풀고 다시 찾는다
-# 미끄러진 자리 표시의 수명 [s] (0 = 끝까지). 대회 조건에서는 포기할 일이 없어 표시가 끝까지
-# 남아 서쪽 입구로 가는 길목을 막았을 수 있다 (9/30 20:45 재는 중).
-SLIP_MARK_TTL = 0.0
-# 탐색을 포기하기 전에 제자리에서 한 바퀴 돌며 지도를 다시 보는 횟수 (0 = 끔).
-GIVEUP_RESCANS = 0
 
 # ⚠️ 탈출이 아무리 해도 안 되면, 그건 바퀴가 헛돌고 있다는 뜻이다.
 #    계속 돌리면 엔코더만 쌓여서 추정 위치가 폭주한다 — 실제로 사람에게 눌린
@@ -700,7 +665,6 @@ SAFETY_ESCAPE_MIN_ROOM = 0.10   # [m]
 # ⚠️ 위치만 믿는다. 속도는 못 쓴다 (오차 23cm ÷ 틱 0.032s = 잡음 7 m/s).
 PEOPLE_SEGMENT_JUMP = 0.20      # [m] 이웃 광선이 이만큼 벌어지면 다른 물체로 본다
 PEOPLE_WIDTH_RANGE = (0.04, 0.35)   # [m] 다리로 볼 조각의 폭
-PEOPLE_MIN_BULGE = 0.0          # [m] 양 끝을 잇는 선에서 벗어난 정도의 하한
 PEOPLE_PAIR_WITHIN = 0.8        # [m] 이 안에 있는 다리 둘을 사람 하나로 묶는다
 # 시간 투표 — 여러 스캔에 걸쳐 같은 자리에 보인 것만 사람으로 친다.
 # 한 스캔에는 사람 몸에 점이 몇 개 안 찍히고, 벽 조각이 다리처럼 보이기도 한다.

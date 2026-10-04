@@ -9,7 +9,6 @@
 
 import math
 
-import cv2
 import numpy as np
 
 import common
@@ -197,34 +196,6 @@ def is_occupied(grid):
 def is_free(grid):
     """빈 칸 마스크."""
     return grid <= config.LOG_ODDS_FREE_THRESHOLD
-
-
-def despeckle(occupied, min_neighbours=None):
-    """외딴 점유칸(잡음)을 지운 마스크. **벽은 매끈하다** 는 사전지식을 쓴다.
-
-    ⚠️ 왜 필요한가: 아레나 벽은 두께 0.1 m = 2칸이고 길게 이어지므로 진짜 벽칸은
-       이웃이 여럿이다. 반면 LiDAR 잡음은 **혼자 떠 있는 한 칸** 으로 찍힌다.
-       그 한 칸이 문 가운데 찍히면 planner.inflate 로 부풀려져 **문이 닫힌다** —
-       실제로는 지나갈 수 있는 곳을 "갈 수 없다" 고 판정한다.
-       실측: 저장된 지도에서 점유칸 1063개 중 **252개(24%)가 이웃 0개** 였다.
-       그리고 comb0 은 LiDAR 탐색률 93% / 프론티어 후보 0개 로 끝났다 —
-       남은 7% 안에 세 번째 목표물이 있었는데 "갈 수 없는 곳" 이 된 것이다.
-       (월드를 만들 때 진짜 지도에서는 경로가 있음을 검증했으므로, 막힌 것은
-        로봇의 지도뿐이다.)
-
-    기본값은 "이웃이 0개인 칸만" 지운다 — 벽에 붙은 잡음은 남기므로 보수적이다.
-    """
-    min_neighbours = (config.MAP_DESPECKLE_MIN_NEIGHBOURS
-                      if min_neighbours is None else min_neighbours)
-    if min_neighbours <= 0 or not occupied.any():
-        return occupied
-    # ⚠️ 커널은 **실수** 여야 한다. np.ones((3,3), np.uint8) 을 줬더니 이웃이
-    #    3개인 칸이 1로 셔져서, 한 칸 두께 벽이 통째로 지워졌다 (테스트가 잡았다).
-    counts = cv2.filter2D(occupied.astype(np.uint8), cv2.CV_8U,
-                          np.ones((3, 3), np.float32),
-                          borderType=cv2.BORDER_CONSTANT)
-    neighbours = counts.astype(np.int16) - occupied.astype(np.int16)
-    return occupied & (neighbours >= min_neighbours)
 
 
 def is_unknown(grid):
