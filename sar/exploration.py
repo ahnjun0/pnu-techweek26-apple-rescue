@@ -9,6 +9,7 @@
 
 from collections import deque
 
+import cv2
 import numpy as np
 
 from . import common
@@ -202,6 +203,9 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
     #    그러면 plan(exact=True) 이 그 자리로 길을 못 찾아 "길이 없다" 로 버려진다.
     blocked = (planner.inflate(grid, config.PLANNER_INFLATION_MARGIN)
                | mapping.is_unknown(grid))
+    stale = (config.FRONTIER_STALE_RADIUS if stale_radius is None
+             else stale_radius)
+    reachable = _reachable_cells(grid, robot_xy)
 
     scored = []
     for row, col, size in cluster(frontier_mask(grid)):
@@ -211,13 +215,19 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
         spot = common.to_world(row, col)
         if blocked[cell]:
             cell = planner.nearest_free(blocked, cell)
-            if cell is None:
-                continue
+        # ⚠️ 설 자리가 로봇이 갈 수 없는 쪽에 잡히면, 그 경계 근처에서 로봇 쪽의 가장 가까운
+        #    칸으로 옮긴다. "평소 여유로 안 막힌 가장 가까운 칸" 은 로봇 쪽이 좁고 건너편이
+        #    트여 있으면 얇은 미탐색 띠 **건너편** 에 잡힌다 — 대회 월드(2026-10-05) 거실
+        #    56칸 경계가 그렇게 통째로 버려졌다. 로봇 쪽 0.22 m 옆에는 길이 있었다.
+        if cell is None or not reachable[cell]:
+            near = _nearest_cell(reachable, (row, col), common.to_cells(stale))
+            if near is not None:
+                cell = near
+        if cell is None:
+            continue
         x, y = common.to_world(*cell)
         # 옮긴 자리가 프론티어에서 너무 멀면 "거기 가려던 이유" 가 사라진다
         # (frontier_near 가 거짓이 되어 다음 틱에 목표가 곧바로 버려진다).
-        stale = (config.FRONTIER_STALE_RADIUS if stale_radius is None
-                 else stale_radius)
         if common.distance(x, y, *spot) > stale:
             continue
         if common.distance(x, y, *robot_xy) < min_distance:
@@ -248,6 +258,35 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
     # ⚠️ 대회 조건 실행: 서쪽 방 입구 앞 131칸 경계를 끝까지 안 가고 작은 경계만 오가다 시간이 끝났다.
     scored.sort(key=lambda item: item[1] - config.FRONTIER_SIZE_BONUS * item[2])
     return scored
+
+
+def _reachable_cells(grid, robot_xy):
+    """로봇이 좁은 여유로 이어 갈 수 있는 칸 (planner.plan 과 같은 막힘: 팽창 + 미지)."""
+    blocked = (planner.inflate(grid, config.PLANNER_SQUEEZE_MARGIN)
+               | mapping.is_unknown(grid))
+    none = np.zeros_like(blocked)
+    seed = common.to_cell(*robot_xy)
+    if not common.in_bounds(*seed):
+        return none
+    if blocked[seed]:
+        # 로봇이 팽창 영역 안에 있을 수 있다 (planner 도 출발점 주변을 풀어 준다)
+        seed = planner.nearest_free(blocked, seed)
+        if seed is None:
+            return none
+    _, labels = cv2.connectedComponents((~blocked).astype(np.uint8), connectivity=8)
+    return labels == labels[seed]
+
+
+def _nearest_cell(mask, cell, radius_cells):
+    """cell 에서 radius_cells 안의 mask 칸 중 가장 가까운 칸. 없으면 None."""
+    row, col = cell
+    r0, c0 = max(0, row - radius_cells), max(0, col - radius_cells)
+    rows, cols = np.nonzero(mask[r0:row + radius_cells + 1, c0:col + radius_cells + 1])
+    if rows.size == 0:
+        return None
+    rows, cols = rows + r0, cols + c0
+    k = int(np.argmin((rows - row) ** 2 + (cols - col) ** 2))
+    return int(rows[k]), int(cols[k])
 
 
 def frontier_near(grid, x, y, radius=None):

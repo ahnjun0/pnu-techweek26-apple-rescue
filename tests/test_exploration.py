@@ -511,3 +511,30 @@ def test_corner_frontiers_are_usable():
     assert config.FRONTIER_STALE_RADIUS >= reach * 1.5, (
         f"신선도 반경 {config.FRONTIER_STALE_RADIUS:.2f} m 는 모서리를 못 덮는다 "
         f"(벽 하나에서만도 {reach:.2f} m, 모서리는 두 축으로 겹친다)")
+
+
+def test_a_frontier_whose_stand_spot_falls_across_an_unseen_strip_is_still_offered():
+    """설 자리가 안 본 띠 **건너편** 에 잡혀도, 로봇 쪽에 설 자리가 있으면 후보로 낸다.
+
+    ⚠️ 회귀 방지. 대회 월드(2026-10-05, 370초 녹화 재생): 거실 의자와 소파 사이 좁은 목
+       (평소 여유로는 막히고 좁은 여유로만 통과) 끝에 56칸 경계가 있었다. 설 자리는 평소
+       여유로 안 막힌 가장 가까운 칸이라, 얇은 미탐색 띠 건너 넓게 트인 복도에 잡혔고
+       거기는 갈 수 없어 그 경계가 통째로 버려졌다. 로봇 쪽으로 0.22 m 옮긴 자리에는
+       길이 있었다 — 거기 서면 띠 너머가 보이고 사과로 가는 복도가 열린다.
+    """
+    # 칸 번호로 그린다 (월드 좌표 경계는 부동소수점 반올림으로 한 줄씩 밀린다).
+    r, c = common.to_cell(0.0, 0.0)
+    half = common.to_cells(config.ROBOT_RADIUS + config.PLANNER_INFLATION_MARGIN)
+    grid = mapping.new_map()
+    grid[r - 40:r + 40, c - 40:c + 40] = config.LOG_ODDS_MAX           # 바탕은 벽
+    # 로봇이 올라온 복도 — 가운데 칸이 양쪽 벽에서 정확히 평소 팽창 반경만큼 떨어진다.
+    # 평소 여유로는 전부 막히고, 좁은 여유로는 가운데 한 줄만 열린다.
+    grid[r - 30:r, c - half + 1:c + half] = config.LOG_ODDS_MIN
+    grid[r:r + 2, c - half + 1:c + half] = 0.0                       # 안 본 얇은 띠 (2칸)
+    grid[r + 2:r + 30, c - 30:c + 30] = config.LOG_ODDS_MIN             # 건너편 넓은 방
+    robot = common.to_world(r - 20, c)
+    found = exploration.candidate_list(grid, robot, min_distance=0.0)
+    near_side = [spot for spot, _, _ in found if common.to_cell(*spot)[0] < r]
+    assert near_side, f"로봇 쪽 설 자리로 경계를 내야 한다: {found}"
+    assert planner.plan(grid, robot, near_side[0], exact=True,
+                        margin=config.PLANNER_SQUEEZE_MARGIN), "그 자리는 실제로 갈 수 있어야 한다"
