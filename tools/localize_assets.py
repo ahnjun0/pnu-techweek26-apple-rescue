@@ -3,9 +3,9 @@
 왜: 원격 주소면 여는 순간 GitHub 에서 받는다. 느리거나 끊기면 Webots 가 튕긴다.
 
 쓰는 법:
-  python3 competition/localize_assets.py mirror
+  python3 tools/localize_assets.py mirror
       미러 안 PROTO 들의 "webots://projects/..." 를 상대경로로 바꾼다 (setup_assets.sh 가 부른다).
-  python3 competition/localize_assets.py world 원본.wbt 사본.wbt
+  python3 tools/localize_assets.py world 원본.wbt 사본.wbt
       월드의 원격 주소를 사본 위치 기준 상대경로로 바꿔 사본을 쓴다. 미러에 없는 파일은 알려 준다.
 
 큰따옴표 안 주소만 바꾼다 — TexturedBackground 의 JS 템플릿('webots://...')은 건드리지 않는다.
@@ -15,7 +15,7 @@ import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-MIRROR = os.path.join(HERE, "webots_assets")
+MIRROR = os.path.join(os.path.dirname(HERE), "competition", "webots_assets")
 REMOTE = re.compile(r'"(?:webots://|https://raw\.githubusercontent\.com/cyberbotics/webots/R2025a/)'
                     r'(projects/[^"]+)"')
 

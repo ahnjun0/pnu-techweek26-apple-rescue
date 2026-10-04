@@ -4,13 +4,15 @@
 # 왜 필요한가: apartment 월드는 여는 순간 GitHub 에서 PROTO·텍스처 150여 개를 받는다.
 #   인터넷이 느리거나 끊기면 다운로드 실패(GOAWAY)로 Webots 가 튕긴다.
 #   worlds/apartment_check.wbt 는 이 폴더를 가리키므로 **먼저 이걸 받아야 열린다.**
-# 쓰는 법: bash competition/setup_assets.sh
+# 쓰는 법: bash tools/setup_assets.sh
 set -e
-cd "$(dirname "$0")"
-if [ -d webots_assets/.git ]; then echo "이미 있다: competition/webots_assets"; exit 0; fi
+cd "$(dirname "$0")/.."
+ROOT="$PWD"
+if [ -d competition/webots_assets/.git ]; then echo "이미 있다: competition/webots_assets"; exit 0; fi
+mkdir -p competition
 git clone --depth 1 --branch R2025a --filter=blob:none --sparse \
-  https://github.com/cyberbotics/webots.git webots_assets
-cd webots_assets
+  https://github.com/cyberbotics/webots.git competition/webots_assets
+cd competition/webots_assets
 git sparse-checkout set \
   projects/appearances/ \
   projects/devices/robotis/ \
@@ -57,5 +59,5 @@ git sparse-checkout set \
   projects/samples/environments/indoor/worlds/textures/ \
   projects/objects/floors/ \
   >/dev/null
-cd .. && python3 localize_assets.py mirror
-echo "완료: $(du -sh webots_assets | cut -f1)"
+cd "$ROOT" && python3 tools/localize_assets.py mirror
+echo "완료: $(du -sh competition/webots_assets | cut -f1)"

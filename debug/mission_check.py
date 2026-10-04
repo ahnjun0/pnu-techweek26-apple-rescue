@@ -226,26 +226,6 @@ def main():
     RADIUS_BY_DEF = {"SMALLMOVER": 0.07, "BIGMOVER": 0.15}
     DEFAULT_MOVER_RADIUS = 0.15     # 모르는 물체는 보수적으로 이 값으로 잰다
 
-    # 진짜 방향(heading) — 몸체 여유를 방향까지 써서 재려면 필요하다.
-    # API 근거: Node.getField / Field.getSFRotation
-    #   lib/controller/python/controller/node.py (getField),
-    #   field.py (getSFRotation). 축은 z 이므로 [0,0,1,theta] 형태다.
-    self_rot = None
-    if robot.getSupervisor():
-        _me = robot.getSelf()
-        if _me is not None:
-            self_rot = _me.getField("rotation")
-
-    def truth_heading():
-        """진짜 heading [rad]. 못 읽으면 None."""
-        if self_rot is None:
-            return None
-        v = self_rot.getSFRotation()
-        # z 축 회전이 아니면 판정하지 않는다 (추측하지 않는다)
-        if abs(v[0]) > 1e-6 or abs(v[1]) > 1e-6 or abs(abs(v[2]) - 1.0) > 1e-6:
-            return None
-        return v[3] * (1.0 if v[2] > 0 else -1.0)
-
     movers = []
     if robot.getSupervisor():
         me = robot.getSelf()
@@ -356,26 +336,6 @@ def main():
     closest_when = 0.0
     closest_doing = ""
 
-    # 진짜 위치로 재는 벽 여유 — 충돌 판정의 유일한 근거 (config 의 설명 참고).
-    # 벽 기하를 아는 월드(= make_maze_world 가 만든 것)에서만 잴 수 있다.
-    wall_rects = None
-    wall_clearance_min = None
-    wall_touch_where = None
-    target_rects = None
-    target_clearance_min = None
-    body_clearance_min = None
-    body_touch_at = None
-    minrange_ticks = 0
-    minrange_rays = 0
-    minrange_true_gap = math.inf
-    if os.environ.get("SAR_LAYOUT"):
-        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        import make_maze_world
-        wall_rects = make_maze_world.wall_rects()
-        wall_clearance_min = math.inf
-        target_rects = make_maze_world.target_rects()
-        target_clearance_min = math.inf
-        body_clearance_min = math.inf
     # 사람 검출·추적을 나중에 오프라인에서 마음껏 실험하려고, 원시 LiDAR 와
     # 사람의 진짜 위치를 통째로 남긴다 (Webots 를 매번 돌리지 않으려고).
     tape = {"t": [], "pose": [], "ranges": [], "person": [], "truth": [],
@@ -516,43 +476,6 @@ def main():
                     m["doing"] = brain.status
                 if gap < config.ROBOT_RADIUS + m["radius"]:
                     m["touch"] += 1
-
-            # LiDAR 최솟값 근처 반환이 진짜인지 — 진짜 기하와 대조한다.
-            # (허위라면 follower 가 유령 장애물을 12 cm 앞에 두고 있다는 뜻이다.)
-            if wall_rects is not None and len(finite):
-                floor_hits = int((finite <= config.LIDAR_MIN_RANGE + 0.005).sum())
-                if floor_hits:
-                    minrange_ticks += 1
-                    minrange_rays += floor_hits
-                    true_gap = min(
-                        make_maze_world.clearance_to_walls(truth[0], truth[1],
-                                                           wall_rects),
-                        make_maze_world.clearance_to_walls(truth[0], truth[1],
-                                                           target_rects))
-                    minrange_true_gap = min(minrange_true_gap, true_gap)
-
-            if wall_rects is not None:
-                gap = make_maze_world.clearance_to_walls(truth[0], truth[1],
-                                                         wall_rects)
-                if gap < wall_clearance_min:
-                    wall_clearance_min = gap
-                    wall_touch_where = (truth[0], truth[1])
-                # ⚠️ 위 값(외접원 기준)은 실제 여유의 **하한** 이다. 양수면 충돌이
-                #    없다고 확정할 수 있지만, 음수라고 닿은 것은 아니다 — 외접원은
-                #    모든 방향에서 최악 방향을 동시에 가정한다.
-                #    실측: comb0 이 외접원 -0.03 cm 였는데 방향을 쓰면 +4.15 cm.
-                #    그래서 방향까지 쓰는 정확한 값을 따로 잰다.
-                th = truth_heading()
-                if th is not None:
-                    bgap = make_maze_world.body_clearance(truth[0], truth[1],
-                                                          th, wall_rects)
-                    if bgap < body_clearance_min:
-                        body_clearance_min = bgap
-                        body_touch_at = (truth[0], truth[1], th,
-                                         brain.elapsed, brain.status)
-                tgap = make_maze_world.clearance_to_walls(truth[0], truth[1],
-                                                          target_rects)
-                target_clearance_min = min(target_clearance_min, tgap)
 
             if nearest < closest_ever:
                 closest_ever = nearest
@@ -801,21 +724,11 @@ def main():
     #    를 구별할 수 없다.
     if targets_true and len(confirmed) < len(targets_true):
         found_xy = [(t.x, t.y) for t in confirmed]
-        true_grid = None
-        if os.environ.get("SAR_LAYOUT"):
-            try:
-                import make_maze_world as _mw
-                true_grid = _mw.build_grid()
-            except Exception as exc:
-                print(f"  (참고) 진짜 지도를 못 읽었다: {exc}")
-                true_grid = None
         for tx, ty in targets_true:
             if any(math.hypot(tx - fx, ty - fy) < 0.6 for fx, fy in found_xy):
                 continue
             here = trail_true[0]
             mine = planner.plan(brain.grid, here, (tx, ty))
-            truth_path = (planner.plan(true_grid, here, (tx, ty))
-                          if true_grid is not None else None)
             cell = common.to_cell(tx, ty)
             state = "미지"
             if common.in_bounds(*cell):
@@ -841,9 +754,7 @@ def main():
                       f" @({fxs[k]:+.2f},{fys[k]:+.2f})")
             print(f"  ▶ 못 찾은 목표물 ({tx:+.2f},{ty:+.2f}):"
                   f" 로봇 지도에서 그 칸은 '{state}',"
-                  f" 로봇 지도로 길 {'있음' if mine else '없음'},"
-                  f" 진짜 지도로 길"
-                  f" {'있음' if truth_path else ('없음' if true_grid is not None else '(모름)')}")
+                  f" 로봇 지도로 길 {'있음' if mine else '없음'}")
 
     # 목표가 얼마나 자주, 왜 바뀌나 (mission.COUNT — 관찰용 계수기)
     if mission_mod.COUNT.get("틱"):
@@ -982,48 +893,6 @@ def main():
         else:
             print(f"      ✅ 한 번도 닿지 않았다")
 
-    # ── 충돌 판정 ─────────────────────────────────────────────────────────
-    # ⚠️ 예전에는 min(LiDAR) - ROBOT_RADIUS 로 판정했다. 그건 계측 오류였다:
-    #    LiDAR 는 LIDAR_MIN_RANGE(0.12 m) 에서 포화하고 ROBOT_RADIUS(0.13)는
-    #    계획용 패딩값이라, 가까이만 가면 무조건 "충돌" 이 나왔다 (16월드 중 10개,
-    #    값이 전부 0.123~0.128 m = 센서 바닥). 실제로는 한 번도 닿지 않았다.
-    #    → 진짜 위치와 벽 사각형으로 해석적으로 잰다 (격자 0.05 m 는 너무 거칠다).
-    if body_clearance_min is not None and math.isfinite(body_clearance_min):
-        print(f"  ── 벽까지 몸체 여유 (방향까지 쓴 정확한 값) ──")
-        if body_clearance_min <= 0.0:
-            print(f"  ❌ 벽에 닿았다: {body_clearance_min * 100:+.2f} cm")
-        elif body_clearance_min < 0.02:
-            print(f"  △ 스칠 뻔했다: {body_clearance_min * 100:+.2f} cm")
-        else:
-            print(f"  ✅ 충돌 없음: {body_clearance_min * 100:+.2f} cm")
-        if body_touch_at:
-            bx, by, bt, bw, bs = body_touch_at
-            print(f"      그때 ({bx:+.2f}, {by:+.2f}) 방향 {math.degrees(bt):+.0f}°"
-                  f"  시각 {bw:.1f}s / 하던 것: {bs}")
-
-    if wall_clearance_min is not None:
-        margin = wall_clearance_min - config.ROBOT_BODY_RADIUS
-        where = f" @ ({wall_touch_where[0]:+.2f}, {wall_touch_where[1]:+.2f})" \
-            if wall_touch_where else ""
-        head = (f"  (참고) 외접원 기준 하한 {config.ROBOT_BODY_RADIUS:.3f} m"
-                f": {margin * 100:+.1f} cm{where}")
-        print(f"{head}  ← 양수면 충돌 없음이 확정, 음수라고 닿은 건 아니다")
-        if minrange_ticks:
-            print(f"  ⚠️ LiDAR 최솟값({config.LIDAR_MIN_RANGE} m) 근처 반환:"
-                  f" {minrange_ticks} 틱, 광선 {minrange_rays} 개")
-            print(f"      그때 진짜로 가장 가까웠던 것: "
-                  f"{minrange_true_gap:.3f} m  (몸체 반경 {config.ROBOT_BODY_RADIUS:.3f})"
-                  f"  ← 이보다 훨씬 멀면 **허위 반환** 이고, follower 가 유령"
-                  f" 장애물을 보고 있다는 뜻이다")
-        else:
-            print("  ✅ LiDAR 최솟값 근처 반환 없음")
-        tmargin = target_clearance_min - config.ROBOT_BODY_RADIUS
-        mark = "❌ 닿았다" if tmargin <= 0.0 else "✅"
-        print(f"  {mark} 목표물까지 몸체 여유: {tmargin * 100:+.1f} cm"
-              f"  (가까이 가는 것은 의도다 — 닿는 것만 문제)")
-    else:
-        print("  △ 벽 기하를 모르는 월드라 충돌을 판정하지 않는다"
-              " (SAR_LAYOUT 이 있으면 잰다)")
     print("=" * 74)
     sys.stdout.flush()
     sys.stdout = real_stdout

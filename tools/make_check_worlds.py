@@ -24,7 +24,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "competition", "given", "worlds", "apartment.wbt")
 _spec = importlib.util.spec_from_file_location(
-    "localize_assets", os.path.join(ROOT, "competition", "localize_assets.py"))
+    "localize_assets", os.path.join(ROOT, "tools", "localize_assets.py"))
 localize = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(localize)
 
@@ -67,7 +67,7 @@ def main():
     }
     remote = "--remote" in sys.argv
     if not remote and not os.path.isdir(localize.MIRROR):
-        sys.exit("❌ 에셋 미러가 없다 — bash competition/setup_assets.sh 먼저 (./setup.sh 가 한다)")
+        sys.exit("❌ 에셋 미러가 없다 — bash tools/setup_assets.sh 먼저 (./setup.sh 가 한다)")
     for name, text in outputs.items():
         path = os.path.join(ROOT, "worlds", name)
         missing = set()

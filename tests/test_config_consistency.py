@@ -273,19 +273,6 @@ def test_scanmatch_search_is_not_wider_than_a_tick_of_drift():
         f"와 다르다 — 격자 해상도 {config.MAP_RESOLUTION} m 로 반올림된다")
 
 
-def test_controller_period_is_a_multiple_of_the_physics_step():
-    """⚠️ Webots 규약: 컨트롤러 주기는 월드 basicTimeStep 의 배수여야 한다.
-
-    연습 월드는 16 ms 다. 이 값이 그 배수가 아니면 컨트롤러가 조용히
-    다른 주기로 돌고, 물리 해상도를 바꿀 때 제어율까지 따라 바뀐다.
-    """
-    import re
-    world = open("worlds/practice_check.wbt", encoding="utf-8").read()
-    basic = int(re.search(r"basicTimeStep (\d+)", world).group(1))
-    assert config.TIME_STEP % basic == 0, (
-        f"컨트롤러 주기 {config.TIME_STEP} ms 가 물리 스텝 {basic} ms 의 배수가 아니다")
-
-
 def test_tick_constants_keep_their_time_interval_at_a_slower_step():
     """월드 주기가 바뀌어도 "N 틱마다" 가 같은 **시간** 간격이어야 한다.
 

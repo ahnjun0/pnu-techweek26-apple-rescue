@@ -1,5 +1,5 @@
 #!/bin/sh
-# 헤드리스로 월드를 실행한다.  사용:  ./run_headless.sh worlds/practice.wbt [최대초]
+# 헤드리스로 월드를 실행한다.  사용:  ./run_headless.sh [월드 — 기본 worlds/apartment_competition_check.wbt] [최대초]
 #
 # 컨트롤러가 "[[DONE]]" 을 찍으면 곧바로 끝낸다. 최대초는 그게 안 나올 때의 안전장치일 뿐이다.
 #
@@ -14,7 +14,7 @@
 set -e
 export SAR_VIZ=0          # 헤드리스에서 창을 켜 봐야 느리기만 하다 (한 번 그리는 데 ~32 ms)
 
-WORLD="${1:-worlds/practice.wbt}"
+WORLD="${1:-worlds/apartment_competition_check.wbt}"
 LIMIT="${2:-600}"
 WORLD_ABS="$(cd "$(dirname "$WORLD")" && pwd)/$(basename "$WORLD")"
 LOG="$(mktemp -t sar_headless)"

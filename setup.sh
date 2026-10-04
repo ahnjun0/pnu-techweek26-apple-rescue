@@ -40,7 +40,7 @@ WEBOTS=/Applications/Webots.app/Contents/MacOS/webots
 [ -x "$WEBOTS" ] && echo "  Webots OK ($WEBOTS)" || echo "  ⚠️ Webots R2025a 가 /Applications 에 없다 — https://cyberbotics.com 에서 R2025a 설치"
 
 echo "== 4. Webots 에셋"
-bash competition/setup_assets.sh
+bash tools/setup_assets.sh
 "$PY" tools/make_check_worlds.py
 
 cat <<MSG
