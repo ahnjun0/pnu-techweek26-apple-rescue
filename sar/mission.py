@@ -105,6 +105,8 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self._glance_points = []        # 고개를 돌려 본 자리 (config.GLANCE_*)
         self._glance_heading = None     # 지금 돌아보는 방향 [rad] (없으면 None)
         self._since_replan = 0.0
+        self._path_goal = None      # 지금 path 를 어느 목표로 짰나
+        self._detour_since = None   # 우회(또는 길 없음)가 처음 나온 시각 [s] (config.MISSION_DETOUR_*)
         self._stuck_time = 0.0
         self._stuck_anchor = None   # 끼임 판정을 위한 기준 위치
         self._backup_left = 0.0     # 남은 후진 시간 [s]
@@ -351,9 +353,10 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         (좁은 문 같은 곳) 여유를 줄인다. "안전하게 먼저, 안 되면 좁게" 순서다.
         """
         self._since_replan = 0.0
+        old_path, old_index = self.path, self.path_index
         self.path_index = 0
-        self.squeezing = False
         if not self.goal:
+            self.squeezing = False
             self.path = []
             return
 
@@ -370,12 +373,39 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         #    (exploration.candidate_list 의 주석 참고). 후보 선택과 **같은 규칙** 이어야 한다.
         found = planner.plan(self.plan_grid, pose[:2], self.goal,
                              people=self._people_xy)
+        squeezing = False
         if not found:
             found = planner.plan(self.plan_grid, pose[:2], self.goal,
                                  margin=config.PLANNER_SQUEEZE_MARGIN,
                                  people=self._people_xy)
-            self.squeezing = bool(found)
+            squeezing = bool(found)
+        if self._hold_path(pose, old_path, old_index, found):
+            self.path, self.path_index = old_path, old_index
+            return
+        self.squeezing = squeezing
         self.path = found or []
+        self._path_goal = self.goal
+
+    def _hold_path(self, pose, old_path, old_index, found):
+        """새 길이 갑자기 훨씬 길거나 없으면, 그게 이어지기 전까지 지금 길을 지킬까 (config.MISSION_DETOUR_*)."""
+        if not old_path or self._path_goal != self.goal:
+            self._detour_since = None
+            return False
+        left = (common.distance(*pose[:2], *old_path[old_index])
+                + sum(common.distance(*a, *b)
+                      for a, b in zip(old_path[old_index:], old_path[old_index + 1:])))
+        if found:
+            length = sum(common.distance(*a, *b) for a, b in zip(found, found[1:]))
+            if length <= left * config.MISSION_DETOUR_RATIO + config.MISSION_DETOUR_SLACK:
+                self._detour_since = None
+                return False
+        if self._detour_since is None:
+            self._detour_since = self.elapsed
+        if self.elapsed - self._detour_since >= config.MISSION_DETOUR_CONFIRM:
+            self._detour_since = None
+            return False
+        _tally("우회 보류 (지도 깜빡임)")
+        return True
 
     def _fail_goal(self, reason, immediate=False):
         if self.goal is not None:

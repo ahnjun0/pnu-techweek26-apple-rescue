@@ -1303,3 +1303,66 @@ def test_glance_happens_once_per_place():
     assert brain._start_glance((0.0, 0.0, 0.0))
     brain._glance_heading = None                               # 다 돌아봤다고 치자
     assert not brain._start_glance((0.1, 0.0, 0.0)), "같은 자리에서는 한 번만"
+
+
+# --- 지도 깜빡임에 우회로를 바로 받지 않는다 (config.MISSION_DETOUR_*) -----------------
+
+SHORT = [(0.0, 0.0), (3.0, 0.0)]
+DETOUR = [(0.0, 0.0), (0.0, 3.0), (3.0, 3.0), (3.0, 0.0)]
+
+
+def _brain_on(path, goal=(3.0, 0.0)):
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    brain.goal = goal
+    brain.path, brain.path_index, brain._path_goal = list(path), 0, goal
+    return brain
+
+
+def test_a_sudden_long_detour_is_held_off_until_it_lasts(monkeypatch):
+    """안락의자 다리 둘레가 0.3초마다 막혔다 풀려 3 m 길과 7 m 우회로를 27번 뒤집었다 (2026-10-06)."""
+    monkeypatch.setattr(mission.planner, "plan", lambda *a, **k: list(DETOUR))
+    brain = _brain_on(SHORT)
+    brain._replan((0.0, 0.0, 0.0))
+    assert brain.path == SHORT, "잠깐 나온 우회로는 받지 않는다"
+    brain.elapsed += config.MISSION_DETOUR_CONFIRM
+    brain._replan((0.0, 0.0, 0.0))
+    assert brain.path == DETOUR, "이어지면 받아들인다"
+
+
+def test_a_short_path_coming_back_resets_the_wait(monkeypatch):
+    plans = [list(DETOUR), list(SHORT), list(DETOUR)]
+    monkeypatch.setattr(mission.planner, "plan", lambda *a, **k: plans.pop(0))
+    brain = _brain_on(SHORT)
+    brain._replan((0.0, 0.0, 0.0))                 # 우회 — 보류
+    brain.elapsed += config.MISSION_DETOUR_CONFIRM * 0.8
+    brain._replan((0.0, 0.0, 0.0))                 # 짧은 길이 돌아왔다
+    brain.elapsed += config.MISSION_DETOUR_CONFIRM * 0.8
+    brain._replan((0.0, 0.0, 0.0))                 # 또 우회 — 처음부터 다시 센다
+    assert brain.path == SHORT
+
+
+def test_no_path_at_all_is_also_held_off_briefly(monkeypatch):
+    monkeypatch.setattr(mission.planner, "plan", lambda *a, **k: None)
+    brain = _brain_on(SHORT)
+    brain._replan((0.0, 0.0, 0.0))
+    assert brain.path == SHORT
+    brain.elapsed += config.MISSION_DETOUR_CONFIRM
+    brain._replan((0.0, 0.0, 0.0))
+    assert brain.path == []
+
+
+def test_a_new_goal_takes_its_path_at_once(monkeypatch):
+    monkeypatch.setattr(mission.planner, "plan", lambda *a, **k: list(DETOUR))
+    brain = _brain_on(SHORT)
+    brain.goal = (3.0, 0.5)                         # 목표가 바뀌었다
+    brain._replan((0.0, 0.0, 0.0))
+    assert brain.path == DETOUR
+
+
+def test_a_slightly_longer_path_is_taken_at_once(monkeypatch):
+    slightly = [(0.0, 0.0), (1.5, 0.6), (3.0, 0.0)]
+    monkeypatch.setattr(mission.planner, "plan", lambda *a, **k: list(slightly))
+    brain = _brain_on(SHORT)
+    brain._replan((0.0, 0.0, 0.0))
+    assert brain.path == slightly
