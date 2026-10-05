@@ -284,3 +284,21 @@ def test_spins_the_short_way_toward_the_goal():
 
     assert speed == 0.0 and status == follower.STOPPED
     assert turn > 0.0, f"목표가 왼쪽인데 오른쪽으로 돌았다 (w={turn:.2f})"
+
+
+@pytest.mark.parametrize("side", [+1.0, -1.0])
+def test_turns_round_on_the_spot_instead_of_creeping_away_from_a_target_behind(side):
+    """조준점이 뒤에 있고 그쪽 옆에 장애물이 있으면, 등진 채 앞으로 기어가지 말고 제자리에서 돈다.
+
+    대회 월드 2026-10-06 녹화(693.6초)에서 조준점을 등지고 0.02~0.03 m/s 로 거의 돌지도
+    않고 기어간 시간이 121초였다 (10초 넘게 이어진 것만 6번). 궤적 끝점만 보는 점수에서는
+    뒤의 점까지 거리가 전진 후보끼리 1.2초에 3 cm 밖에 차이 나지 않아, 옆 장애물 여유가 이겼다.
+    """
+    path = [(0.0, 0.0), (-0.5, side * 0.45), (-2.0, side * 2.0)]
+    ranges = wall_at(side * math.pi / 2, 0.47, width=0.3)
+    speed, turn, status, _ = follower.step((0.0, 0.0, 0.0), path, ranges,
+                                           current_speed=0.03, current_turn=-side * 0.05,
+                                           dt=0.032)
+    assert speed == 0.0, f"조준점을 등진 채 앞으로 갔다 (v={speed:.3f})"
+    assert turn * side > 0.0, "조준점 쪽으로 돌아야 한다"
+    assert status == follower.TURNING

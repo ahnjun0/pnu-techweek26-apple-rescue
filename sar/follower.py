@@ -443,6 +443,13 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     _tally("들어온 속도: " + ("후진" if cs < -0.005 else
                             "거의0" if cs <= 0.005 else
                             "최고속" if cs >= 0.19 else "느린전진"))
+    # ⚠️ 조준점이 뒤에 있으면 제자리에서 그쪽으로 돈다. 점수는 궤적 "끝점" 만 보므로 뒤의 점까지
+    #    거리가 전진 후보끼리 거의 같고(1.2초에 3 cm 차이), 옆 장애물 여유가 그 차이를 이긴다 —
+    #    로봇이 조준점을 등진 채 0.02~0.03 m/s 로 거의 돌지도 않고 기어갔다.
+    #    대회 월드 2026-10-06 녹화: 693.6초 중 121초 (10초 넘게 이어진 것만 6번).
+    #    제자리 회전은 원형 로봇에게 어느 쪽이든 안전하다 (_spin_toward 설명).
+    if behind:
+        return 0.0, _spin_toward(target_local, ranges), TURNING, index
     if not (safe & forward).any():
         # ⚠️ 원하는 여유로 갈 데가 없다고 곧바로 포기하면 안 된다.
         #    사람이 그 여유 안으로 들어온 순간 후보가 전멸해 제자리 회전으로
