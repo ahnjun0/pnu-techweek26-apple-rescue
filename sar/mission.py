@@ -9,6 +9,8 @@
 순수 numpy — Webots 없이 pytest 로 돈다 (카메라는 안 주면 그냥 탐색만 한다).
 """
 
+import math
+
 import numpy as np
 
 from . import common
@@ -54,6 +56,8 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self._slip_theta = None
         self.slip_spots = []        # 미끄러진 자리 (계획용 지도에 벽으로 찍는다)
         self.slip_count = 0         # 미끄러짐 감지 횟수 (표시를 풀어도 센다)
+        self._straight_ref = None   # 직진 미끄러짐 기준 (x, y, theta, 정면 거리, 뒷면 거리)
+        self._slip_fix = None       # 직진 미끄러짐으로 되돌린 위치 — 다음 _step 이 오도메트리에 넘긴다
         self.plan_grid = self.grid  # 계획용 지도 = LiDAR 지도 + 낮은 물체 (_refresh_plan_grid)
         self.target_count = config.MISSION_TARGET_COUNT
         # 둘러보기 (SWEEP)
@@ -136,6 +140,7 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
                 detect.yolo_low_obstacles(self.classify(image), pose, width, height,
                                           camera_fov, self.low)
         self._check_slip(pose, wheel_turn, dt)
+        pose = self._check_straight_slip(pose, ranges)
         speed, turn = self._step(pose, ranges, dt)
         self.last_speed, self.last_turn = speed, turn
         return speed, turn
@@ -168,6 +173,8 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         # ⚠️ 고친 값은 여기서 쓰지 않고 바깥(컨트롤러)이 오도메트리에 되먹인다.
         #    그래야 다음 틱부터 그 자리에서 다시 누적된다.
         self.pose_fix = None
+        if self._slip_fix is not None:      # 직진 미끄러짐이 되돌린 위치 (아래 정합이 거기서 더 고친다)
+            self.pose_fix, self._slip_fix = self._slip_fix, None
         if self._ticks % config.SCANMATCH_EVERY == 0:
             if self._field is None:
                 self._field = scanmatch.likelihood_field(self.grid)
@@ -311,13 +318,53 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         if self._slip_for >= config.SLIP_SECONDS:
             _tally("미끄러짐 감지")
             self._slip_for = 0.0
-            if config.SLIP_MARK_RADIUS > 0.0:
-                self.slip_spots.append(tuple(pose[:2]))
-            self.slip_count += 1
-            self._backup_left = max(self._backup_left, config.MISSION_BACKUP_SECONDS)
-            if self.goal is not None and self.state != RETURN:
-                self._fail_goal("미끄러짐")
-            self._refresh_plan_grid()
+            self._slipped(tuple(pose[:2]), "미끄러짐")
+
+    def _check_straight_slip(self, pose, ranges):
+        """곧게 들어가다 걸렸나 — 바퀴는 갔다는데 정면·뒷면 광선이 거의 다 그대로다 (config.SLIP_STRAIGHT_*).
+
+        걸렸으면 _check_slip 과 같이 대응하고 기준 자리로 되돌린 pose 를 돌려준다 (오도메트리에는
+        이번 _step 이 pose_fix 로 넘긴다). 아니면 pose 를 그대로 돌려준다.
+        """
+        if self.state in (SCAN, DONE):
+            self._straight_ref = None
+            return pose
+        cone = config.SLIP_STRAIGHT_CONE
+        ref = self._straight_ref
+        if ref is None or abs(common.angle_diff(pose[2], ref[2])) > cone:
+            self._straight_ref = (pose[0], pose[1], pose[2], np.array(ranges, dtype=np.float64))
+            return pose
+        rx, ry, rtheta, old = ref
+        heading = (math.cos(rtheta), math.sin(rtheta))
+        wheels = (pose[0] - rx) * heading[0] + (pose[1] - ry) * heading[1]
+        if abs(wheels) < config.SLIP_STRAIGHT_DISTANCE:
+            return pose
+        self._straight_ref = (pose[0], pose[1], pose[2], np.array(ranges, dtype=np.float64))
+        # ⚠️ 정면·뒷면이 **둘 다** 그대로여야 한다. 한쪽만 보면 같은 속도로 멀어지는 사람이나
+        #    진행 방향과 나란한 벽(거리가 안 바뀐다)을 "안 움직였다" 로 읽는다.
+        tol = config.SLIP_STRAIGHT_RATIO * abs(wheels)
+        for centre in (0.0, math.pi):
+            still = follower.unchanged_fraction(old, rtheta, ranges, pose[2], centre, cone, tol)
+            if math.isnan(still) or still < config.SLIP_STRAIGHT_STILL:
+                return pose
+        _tally("미끄러짐 감지 (직진)")
+        fixed = (rx, ry, pose[2])
+        self._slip_fix = fixed
+        self._straight_ref = (rx, ry, pose[2], np.array(ranges, dtype=np.float64))
+        # 걸린 것은 몸이 들이민 쪽이다 — 로봇 중심이 아니라 그 앞을 찍는다
+        reach = math.copysign(config.ROBOT_RADIUS, wheels)
+        self._slipped((rx + reach * heading[0], ry + reach * heading[1]), "미끄러짐 (직진)")
+        return fixed
+
+    def _slipped(self, spot, reason):
+        """미끄러짐 대응: 1초 후진하고, 걸린 자리를 계획용 지도에 찍어 다시 안 가고, 목표를 버린다."""
+        if config.SLIP_MARK_RADIUS > 0.0:
+            self.slip_spots.append(spot)
+        self.slip_count += 1
+        self._backup_left = max(self._backup_left, config.MISSION_BACKUP_SECONDS)
+        if self.goal is not None and self.state != RETURN:
+            self._fail_goal(reason)
+        self._refresh_plan_grid()
 
     def _low_points(self):
         """계획에서 피할 낮은 물체: 카메라로 본 것 + 확정한 목표물 (사과도 LiDAR 에 안 보인다)."""

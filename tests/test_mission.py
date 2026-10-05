@@ -313,7 +313,8 @@ def test_moving_robot_is_not_treated_as_stuck():
 
     x = 0.0
     for _ in range(int(config.MISSION_STUCK_SECONDS / 0.1) + 5):
-        brain.step((x, 0.0, 0.0), clear_lidar(), 0.1)
+        # LiDAR 도 움직임에 맞게 바뀐다 — 안 바뀌면 직진 미끄러짐이다 (config.SLIP_STRAIGHT_*)
+        brain.step((x, 0.0, 0.0), _front_back(3.0 - x, 1.0 + x, side=3.0), 0.1)
         x += 0.02                                  # 계속 앞으로 가고 있다
     assert brain._backup_left == 0.0
 
@@ -1222,6 +1223,79 @@ def test_no_slip_when_the_compass_follows_the_wheels():
         theta += 1.1 * dt                   # 나침반도 거의 같이 돈다 (비율 0.92)
         brain._check_slip((0.0, 0.0, theta), 1.2, dt)
     assert brain.slip_spots == []
+
+
+def _front_back(front, back, side=2.0):
+    """정면 ±0.3 rad 은 front, 뒤 ±0.3 rad 은 back, 나머지는 side 인 가짜 LiDAR."""
+    angles = common.lidar_angles()
+    ranges = np.full(config.LIDAR_RESOLUTION, side, dtype=np.float64)
+    ranges[np.abs(common.wrap_angle(angles)) <= 0.3] = front
+    ranges[np.abs(common.wrap_angle(angles - math.pi)) <= 0.3] = back
+    return ranges
+
+
+def _drive_straight(brain, ranges_at, metres=0.25, step=0.0128):
+    """바퀴가 x 축으로 metres 만큼 굴렀다고 차례로 알린다. ranges_at(굴린 거리) 가 그때의 LiDAR.
+
+    컨트롤러처럼 고쳐 준 위치(돌려받은 pose)에서 다시 누적한다.
+    """
+    x = rolled = 0.0
+    while rolled <= metres:
+        x = brain._check_straight_slip((x, 0.0, 0.0), ranges_at(rolled))[0] + step
+        rolled += step
+
+
+def test_straight_slip_is_detected_when_the_wheels_go_but_the_lidar_does_not_move():
+    """카펫 턱에 곧게 들어가 걸림: 두 바퀴가 같이 헛돌아 회전 차이가 없다 — 정면·뒷면 거리로 안다.
+
+    대회 월드 2026-10-06: 20초 헛돌아 추정 위치가 x 로만 1.6 m 밀렸다.
+    """
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    brain.goal = (3.0, 0.0)
+    _drive_straight(brain, lambda x: _front_back(1.0, 1.5))
+    assert brain.slip_count == 1
+    assert brain._backup_left > 0.0 and brain.goal is None
+    fixed = brain._slip_fix
+    assert fixed is not None and abs(fixed[0]) < 0.02 and fixed[1] == 0.0, \
+        "LiDAR 가 본 만큼만(거의 0) 간 자리로 되돌린다"
+    # 걸린 곳은 몸 앞이다 — 거기를 계획용 지도에 막힘으로 찍는다
+    (mx, my), = brain.slip_spots
+    assert mx == pytest.approx(fixed[0] + config.ROBOT_RADIUS) and my == 0.0
+    assert mapping.is_occupied(brain.plan_grid)[common.to_cell(mx, my)]
+
+
+def test_no_straight_slip_when_the_lidar_moves_with_the_wheels():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    _drive_straight(brain, lambda x: _front_back(1.0 - x, 1.5 + x))
+    assert brain.slip_count == 0 and brain._slip_fix is None
+
+
+def test_no_straight_slip_when_only_one_side_stands_still():
+    """앞에서 같은 속도로 멀어지는 사람이 있어도 뒤쪽 벽이 멀어지면 움직인 것이다."""
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    _drive_straight(brain, lambda x: _front_back(1.0, 1.5 + x))
+    assert brain.slip_count == 0
+
+
+def test_no_straight_slip_judgement_without_both_front_and_back():
+    """한쪽이 안 보이면(사거리 밖) 판단하지 않는다 — 보이는 쪽이 사람일 수 있다."""
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    _drive_straight(brain, lambda x: _front_back(1.0, np.inf))
+    assert brain.slip_count == 0
+
+
+def test_step_hands_the_straight_slip_fix_to_the_odometry():
+    brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    brain._slip_fix = (0.01, 0.0, 0.0)
+    brain.step((0.3, 0.0, 0.0), _front_back(1.0, 1.5), 0.064)
+    assert brain.pose_fix is not None
+    assert brain.pose_fix[0] == pytest.approx(0.01, abs=0.05)
+    assert brain._slip_fix is None
 
 
 

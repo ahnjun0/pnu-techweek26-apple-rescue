@@ -52,6 +52,30 @@ def sector_min(ranges, centre, half_width):
     return float(values.min()) if len(values) else math.inf
 
 
+def unchanged_fraction(old_ranges, old_theta, ranges, theta, centre, half_width, tol,
+                       min_rays=5):
+    """옛 스캔의 centre ±half_width 광선들과 **월드 방향이 같은** 지금 광선을 짝지어, 거리가 tol 보다
+    덜 바뀐 짝의 비율. 둘 다 사거리 안인 짝이 min_rays 보다 적으면 nan.
+
+    ⚠️ 로봇 기준 방향이 아니라 월드 방향으로 짝짓는다. 로봇이 조금만 돌아도 같은 로봇 기준 광선이
+       비스듬한 벽을 쓸고 지나가 거리가 크게 출렁인다.
+    """
+    old_ranges = np.asarray(old_ranges, dtype=np.float64)
+    ranges = np.asarray(ranges, dtype=np.float64)
+    old_angles = _angles_for(old_ranges)
+    angles = _angles_for(ranges)
+    picked = np.nonzero(np.abs(common.wrap_angle(old_angles - centre)) <= half_width)[0]
+    here = common.wrap_angle(old_angles[picked] + old_theta - theta)
+    match = np.argmin(np.abs(common.wrap_angle(angles[None, :] - here[:, None])), axis=1)
+    a, b = old_ranges[picked], ranges[match]
+    usable = (np.isfinite(a) & np.isfinite(b) & (a >= config.LIDAR_MIN_RANGE)
+              & (b >= config.LIDAR_MIN_RANGE) & (a <= config.LIDAR_MAX_RANGE)
+              & (b <= config.LIDAR_MAX_RANGE))
+    if int(usable.sum()) < min_rays:
+        return math.nan
+    return float(np.mean(np.abs(a[usable] - b[usable]) < tol))
+
+
 def nearest_obstacle(ranges):
     """가장 가까운 장애물의 (거리 [m], 방향 [rad]). 없으면 (inf, 0.0)."""
     ranges = np.asarray(ranges, dtype=np.float64)
