@@ -4,7 +4,8 @@
 내놓는 것: (전진속도 v, 회전속도 omega). 지도·경로·목표물은 속성으로 꺼내 본다.
 핵심 아이디어: "어디로 갈지" 는 여기서 정하고, "어떻게 갈지" 는 follower 가 한다.
 상태: SCAN → EXPLORE ⇄ APPROACH → (SWEEP) → RETURN → DONE
-상태별 동작은 mission_explore / mission_approach / mission_return 의 mixin 에 있고,
+      (그 사이 어디서든 사람이 다가오면 → EVADE → 원래 상태)
+상태별 동작은 mission_explore / mission_approach / mission_return / mission_evade 의 mixin 에 있고,
 여기에는 매 틱의 흐름(step)·안전·경로 계획·표시용 접근자가 있다.
 순수 numpy — Webots 없이 pytest 로 돈다 (카메라는 안 주면 그냥 탐색만 한다).
 """
@@ -21,14 +22,15 @@ from . import people as people_mod
 from . import planner
 from . import scanmatch
 from .mission_approach import ApproachMixin
+from .mission_evade import EvadeMixin
 from .mission_explore import ExploreMixin
 from .mission_return import ReturnMixin
 from .mission_return import retrace  # noqa: F401  (밖에서 mission.retrace 로 쓴다)
 # 상태 이름과 계수기는 mission_state 에 있다. 밖에서는 mission.EXPLORE, mission.COUNT 로 쓴다.
-from .mission_state import APPROACH, COUNT, DONE, EXPLORE, RETURN, SCAN, SWEEP, _tally  # noqa: F401
+from .mission_state import APPROACH, COUNT, DONE, EVADE, EXPLORE, RETURN, SCAN, SWEEP, _tally  # noqa: F401
 
 
-class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
+class Mission(ExploreMixin, ApproachMixin, ReturnMixin, EvadeMixin):
     """지도·목표·경로를 들고 있는 상자. 매 틱 step() 을 부르면 된다."""
 
     def __init__(self, start_pose=None):
@@ -94,6 +96,9 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self._people_xy = []        # 그중 위치만 (계획기용)
         self._watcher = people_mod.Watcher()   # 여러 스캔에 걸쳐 본 것만 믿는다
         self._tracker = people_mod.Tracker()   # 칼만 필터로 속도를 거른다
+        self._evade_resume = None   # 비키기가 끝나면 돌아갈 상태
+        self._evade_left = 0.0      # 비키기에 남은 시간 [s]
+        self._evade_calm = 0.0      # 위협이 연속으로 없었던 시간 [s]
         self.pose_fix = None        # 스캔 정합이 고쳐 준 위치 (없으면 None)
         self._field = None          # 스캔 정합용 거리장 (지도 갱신 때 다시 만든다)
         self._known = None          # 그때 "아는 칸" 마스크 (거리장과 함께 갱신)
@@ -188,6 +193,17 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
 
         if self.state == SCAN:
             return self._scan(pose, dt)
+
+        # 사람이 나를 향해 오고, 가만히 있으면 부딪힌다 → 하던 일을 멈추고 비킨다
+        # (송지윤의 EVADE, config 의 '비키기' 참고).
+        # ⚠️ 상태와 무관하게 **매 틱** 본다 (아래 시간 예산 검사와 같은 이유 — 특정 상태
+        #    함수 안에 두면 그 상태일 때만 불린다).
+        if self.state == EVADE:
+            return self._evade(pose, ranges, dt)
+        if (config.EVADE_ENABLED and self.state != DONE
+                and people_mod.person_threat(pose, self._people) is not None):
+            self._enter_evade()
+            return self._evade(pose, ranges, dt)
         # 시간이 얼마 안 남았으면 찾은 것만 들고 돌아간다.
         # ⚠️ 이 검사를 _decide_next() 안에 뒀다가 **한 번도 발동하지 않았다.**
         #    그 함수는 "다음에 무엇을 할지 정할 때" 만 불린다. 로봇이 EXPLORE 로

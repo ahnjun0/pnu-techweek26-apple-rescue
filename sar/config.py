@@ -327,6 +327,28 @@ PEOPLE_KF_FORGET = 1.0          # [s] 이만큼 못 보면 추적을 버린다
 PEOPLE_KF_MIN_HITS = 3          # 이만큼 갱신된 추적만 내놓는다
 PEOPLE_KF_COAST = 0.5           # [s] 한동안 안 보여도 예측 위치로 계속 내놓는다 (가려짐 대비)
 
+# --- 비키기 (EVADE) — people.person_threat / mission_evade ----------------------
+# 송지윤(yun110w)의 song-jiyun 브랜치(279d5d5)에서 옮겼다.
+# 보행자는 유령처럼 로봇을 **통과한다** (넘어뜨리지 않는다). 하지만 몸이 겹치면 감점이다.
+# 계획기(사람 둘레 비용)와 DWA(예측 위치 회피)는 "내가 가는 길" 만 본다 — 내가 서 있거나
+# 목표 앞에서 머뭇거리는데 사람이 **나를 향해** 걸어오면 아무도 안 비킨다.
+# 그래서 "가만히 있으면 부딪힌다" 가 예측되면 하던 일을 멈추고 비킨다.
+# 대회 월드(2026-10-05): 둘러보며 제자리에서 도는 동안 보행자 줄 위에 있다가 5.9초 닿았다.
+EVADE_ENABLED = True
+PERSON_BODY_RADIUS = 0.191      # [m] Pedestrian.proto 다리 캡슐 (debug/mission_check.py PERSON_RADIUS 와 같은 근거)
+EVADE_MARGIN = 0.10             # [m] 몸끼리 닿기 직전이 아니라 이만큼 떨어져 있고 싶다
+EVADE_KEEP_DISTANCE = ROBOT_RADIUS + PERSON_BODY_RADIUS + EVADE_MARGIN   # 중심 간 금지 반경 (0.42 m)
+EVADE_HORIZON = 3.0             # [s] 이만큼 앞까지 본다. 보행자 0.2 m/s 면 0.6 m 를 걷는다
+EVADE_UNCERTAINTY_GROWTH = 0.15 # [m/s] 먼 미래일수록 금지 반경을 넓힌다 (예측이 틀리므로)
+# 칼만 추적 속도에는 잡음이 있다 (위치 오차 23 cm). 이보다 느리면 서 있는 사람으로 본다.
+EVADE_MIN_PERSON_SPEED = 0.08   # [m/s]
+EVADE_CALM_SECONDS = 0.6        # [s] 위협이 이만큼 연속으로 없으면 하던 일로 돌아간다
+EVADE_MAX_SECONDS = 6.0         # [s] 이보다 오래 비키지 않는다 (추적이 이상하면 갇힌다)
+EVADE_SECTOR_DEGREES = 20.0     # [도] 비킬 방향 ±이만큼에 장애물이 있는지 본다
+# 비킬 방향으로 이만큼은 트여 있어야 그쪽을 고른다 — 몸 반경 + 정지거리 여유.
+EVADE_MIN_ROOM = ROBOT_RADIUS + ROBOT_CLEARANCE
+EVADE_ALIGN_DEGREES = 35.0      # [도] 비킬 방향과 이보다 어긋나 있으면 제자리에서 먼저 돈다
+
 # --- 스캔 정합 (scanmatch.py) ------------------------------------------------
 # 바퀴가 헛돌아도 벽은 제자리에 있다. LiDAR 스캔을 지도에 맞춰 위치를 고친다
 # (해커톤 공고의 "Localization — Scan Matching 기법 활용").

@@ -350,3 +350,43 @@ class Tracker:
                 for t in self.tracks
                 if t["hits"] >= config.PEOPLE_KF_MIN_HITS
                 and t["unseen"] <= config.PEOPLE_KF_COAST]
+
+
+# ── 다가오는 사람 — "가만히 있으면 부딪히는가" ─────────────────────────────────
+# 송지윤(yun110w)의 song-jiyun 브랜치(279d5d5)에서 옮겼다.
+def person_threat(pose, people, horizon=None):
+    """내가 **가만히 있을 때** 사람이 금지 반경 안으로 들어오고, 나를 향해 오는가.
+
+    받는 것: pose (x, y, theta), people = [(x, y, vx, vy[, 확신도]), ...]
+             (Watcher.see / Tracker.update 가 내놓는 형식 그대로).
+    내놓는 것: 위협이 되는 사람 하나 (그 튜플). 없으면 None — `if person_threat(...)` 로 쓴다.
+
+    예측: 사람은 지금 속도 그대로 걷는다고 보고 horizon 초 앞까지 0.1 초 간격으로
+    거리를 잰다. 먼 미래일수록 예측이 틀리므로 금지 반경을 시간에 비례해 넓힌다
+    (EVADE_UNCERTAINTY_GROWTH [m/s]).
+      d(τ) = |사람(τ) - 나| - EVADE_KEEP_DISTANCE - 불확실성·τ
+    d < 0 이 되는 순간이 있고, 사람이 나를 향해 오고 있으면 위협이다.
+
+    ⚠️ 서 있는 사람(EVADE_MIN_PERSON_SPEED 미만)은 여기서 다루지 않는다 — 가만히
+       있는 사람은 나를 칠 수 없고, 계획기의 사람 둘레 비용이 우회시킨다.
+    ⚠️ 나에게서 멀어지는 사람은 위협이 아니다 (뒤따라가는 상황). 그걸 위협으로
+       치면 사람 뒤에서 계속 비키느라 앞으로 못 간다.
+    """
+    horizon = config.EVADE_HORIZON if horizon is None else horizon
+    step = 0.1
+    for person in people:
+        px, py, vx, vy = person[:4]
+        if math.hypot(vx, vy) < config.EVADE_MIN_PERSON_SPEED:
+            continue
+        rx, ry = px - pose[0], py - pose[1]
+        coming = rx * vx + ry * vy < 0.0      # 상대 위치와 속도가 반대 방향 = 다가온다
+        if not coming:
+            continue
+        for k in range(int(round(horizon / step)) + 1):
+            tau = k * step
+            gap = (math.hypot(rx + vx * tau, ry + vy * tau)
+                   - config.EVADE_KEEP_DISTANCE
+                   - config.EVADE_UNCERTAINTY_GROWTH * tau)
+            if gap < 0.0:
+                return person
+    return None
