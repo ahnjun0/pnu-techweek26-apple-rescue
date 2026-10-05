@@ -40,6 +40,10 @@ from debug import truth as truth_mod
 # ⚠️ 프레임은 실행 내내 **메모리** 에 쌓인다 (8틱마다면 한 번에 약 1.2 GB, 저장할 때 한 번 더 복사).
 #    2026-10-05 에 셋을 동시에 돌렸다가 메모리·스왑·디스크가 차서 세션이 죽었다.
 FRAME_EVERY = int(os.environ.get("SAR_FRAME_EVERY", "8"))
+# 견고성 시험용: 로봇 출발을 이만큼 [s] 늦춘다 (그동안 제자리에 선다). 보행자는 그대로 움직이므로
+# 보행자와의 시간 관계(위상)만 바뀐다 — 대회에서도 알 수 없는 값이다. 0 이면 끈다 (대회 조건).
+# 실행 하나는 보행자를 만나는 시점에 크게 흔들려서, 설정 비교는 여러 지연값의 분포로 한다.
+START_DELAY = float(os.environ.get("SAR_START_DELAY", "0"))
 PERSON_RADIUS = 0.191
 # 여러 실행을 동시에 돌릴 때 결과가 서로 덮어쓰지 않게 SAR_OUT 으로 바꿀 수 있다.
 OUT_DIR = os.environ.get("SAR_OUT") or os.path.join(
@@ -389,6 +393,9 @@ def main():
         if robot.step(timestep) == -1:
             terminated = True
             break
+        if START_DELAY and robot.getTime() < START_DELAY:
+            sensors.drive(0.0, 0.0)          # 출발 전: 서 있기만 한다 (판단부는 아직 안 돈다)
+            continue
         tick += 1
         left, right = sensors.read_encoders()
         compass = sensors.read_compass()
