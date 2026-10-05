@@ -408,18 +408,21 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
         people = [p for p in people
                   if math.hypot(p[0] - pose[0], p[1] - pose[1]) <= reach]
     ghosts = _predicted_points(pose, people)
+
+    def track_clearance(points):
+        if not len(points):
+            return np.full(len(speed_flat), math.inf)
+        # (후보, 점, 장애물) 거리를 한 번에 — 반복문으로 돌면 너무 느리다
+        gaps = np.linalg.norm(tracks[:, :, None, :] - points[None, None, :, :], axis=3)
+        return gaps.min(axis=(1, 2))
+
+    seen = track_clearance(obstacles)           # LiDAR 로 지금 보이는 것
+    clearance = np.minimum(seen, track_clearance(ghosts)) if len(ghosts) else seen
     if len(ghosts):
         obstacles = np.vstack([obstacles, ghosts]) if len(obstacles) else ghosts
 
-    if len(obstacles):
-        # (후보, 점, 장애물) 거리를 한 번에 — 반복문으로 돌면 너무 느리다
-        gaps = np.linalg.norm(tracks[:, :, None, :] - obstacles[None, None, :, :],
-                              axis=3)
-        clearance = gaps.min(axis=(1, 2))
-    else:
-        clearance = np.full(len(speed_flat), math.inf)
-
-    safe = clearance > config.ROBOT_RADIUS + config.DWA_CLEARANCE_MARGIN
+    limit = config.ROBOT_RADIUS + config.DWA_CLEARANCE_MARGIN
+    safe = clearance > limit
 
     # ⚠️ 비상구 조건은 "안전한 후보가 없다" 가 아니라 "안전한 **전진** 후보가
     #    없다" 여야 한다. 제자리 후보는 궤적이 "점" 이라 여유가 늘 만점이므로
@@ -443,6 +446,15 @@ def dwa_step(pose, path, ranges, index=0, current_speed=0.0, current_turn=0.0,
     _tally("들어온 속도: " + ("후진" if cs < -0.005 else
                             "거의0" if cs <= 0.005 else
                             "최고속" if cs >= 0.19 else "느린전진"))
+    # ⚠️ 사람이 **갈 곳** 만으로 전진이 다 막히면, 그 예측은 안전 판정에서 빼고 점수로만 쓴다.
+    #    예측은 시각을 따지지 않고 궤적 전체와 비교하므로, 1.2초 뒤 사람이 올 자리가 지금 로봇이
+    #    선 자리면 **비켜 나가는 궤적까지** 막는다. 그러면 로봇이 그 자리에 서서 사람을 기다린다
+    #    (대회 월드 2026-10-06 녹화 484.4초: 뒤에서 오는 보행자를 피하려다 섰고 1.0초 닿았다).
+    #    서 있는 로봇은 밟힌다 (docs/측정_기록.md §7 "다가오면 멈춰서 기다리기" 를 뺀 이유).
+    #    LiDAR 로 보이는 것(사람의 지금 다리 포함)은 그대로 안전 판정에 남는다.
+    if len(ghosts) and not (safe & forward).any() and (forward & (seen > limit)).any():
+        _tally("사람 예측 때문에만 막힘 — 예측은 점수로만")
+        safe = seen > limit
     if not (safe & forward).any():
         # ⚠️ 원하는 여유로 갈 데가 없다고 곧바로 포기하면 안 된다.
         #    사람이 그 여유 안으로 들어온 순간 후보가 전멸해 제자리 회전으로

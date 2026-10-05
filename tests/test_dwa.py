@@ -284,3 +284,27 @@ def test_spins_the_short_way_toward_the_goal():
 
     assert speed == 0.0 and status == follower.STOPPED
     assert turn > 0.0, f"목표가 왼쪽인데 오른쪽으로 돌았다 (w={turn:.2f})"
+
+
+def test_does_not_freeze_where_a_person_from_behind_is_predicted_to_arrive():
+    """사람이 1.2초 뒤 올 자리가 지금 선 자리라도, 앞이 트였으면 비켜 나간다 (서 있으면 밟힌다).
+
+    대회 월드 2026-10-06 녹화 484.4초: 뒤쪽 오른편에서 북쪽으로 오는 보행자의 예측 위치가 로봇 자리에
+    겹쳐 전진 후보가 전부 위험으로 나왔고, 로봇이 그 자리에 서서 1.0초 닿았다.
+    """
+    ranges = wall_at(-math.radians(110), 0.40, width=0.15)          # 지금 보이는 다리
+    person = [(-0.14, -0.38, 0.0, 0.38, 99)]                        # 북쪽(+y)으로 온다
+    speed, turn, status, _ = follower.step((0.0, 0.0, 0.0), [(0.0, 0.0), (3.0, 0.0)], ranges,
+                                           current_speed=0.2, current_turn=0.0, dt=0.032,
+                                           allow_idle=True, people=person)
+    assert speed > 0.0, f"사람이 올 자리에 서 있으면 안 된다 (v={speed:.3f}, {status})"
+
+
+def test_a_person_seen_ahead_still_blocks_driving_into_them():
+    """예측을 점수로 돌려도, 지금 LiDAR 로 보이는 사람에게 들이받지는 않는다."""
+    ranges = wall_at(0.0, config.ROBOT_RADIUS + 0.06, width=0.3)    # 바로 앞에 다리
+    person = [(0.3, 0.0, -0.3, 0.0, 99)]                            # 다가온다
+    speed, _, _, _ = follower.step((0.0, 0.0, 0.0), [(0.0, 0.0), (3.0, 0.0)], ranges,
+                                   current_speed=0.1, current_turn=0.0, dt=0.032,
+                                   allow_idle=True, people=person)
+    assert speed <= 0.0
