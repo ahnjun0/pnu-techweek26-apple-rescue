@@ -1153,6 +1153,39 @@ def test_an_unseen_strip_next_to_a_frontier_is_left_to_exploration():
     assert not brain._start_nearby_look((0.0, 0.0, 0.0))
 
 
+def test_replan_goes_to_a_goal_only_the_narrow_margin_reaches_instead_of_stopping_short():
+    """좁은 여유로만 닿는 목표면, 평소 여유가 근처 칸으로 바꿔 준 경로 대신 좁은 길로 끝까지 간다.
+
+    ⚠️ 회귀 방지. plan() 은 목표 칸이 막혀 있으면 근처 칸으로 목표를 바꿔 "성공" 한다.
+       _replan 은 평소 여유로 먼저 묻기 때문에 좁은 복도 안 목표는 입구 앞에서 끝나는 길을
+       받았고, 도착하면 "경로는 끝났는데 목표에 못 닿았다" 로 실패했다. 대회 월드(2026-10-05)
+       2/2 실행: 탐색 643초 중 실패한 목표에 272초, 그중 이 실패가 14~15번이었다.
+    """
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    r, c = common.to_cell(0.0, 0.0)
+    half = common.to_cells(config.ROBOT_RADIUS + config.PLANNER_INFLATION_MARGIN)
+    brain.grid[:] = config.LOG_ODDS_MAX
+    brain.grid[r - 30:r - 10, c - 20:c + 20] = config.LOG_ODDS_MIN    # 넓은 방
+    brain.grid[r - 10:r + 10, c - half + 1:c + half] = config.LOG_ODDS_MIN   # 좁은 복도
+    brain._refresh_plan_grid()
+    start = common.to_world(r - 20, c)
+    brain.goal = common.to_world(r, c)                                  # 복도 안
+    brain._replan((start[0], start[1], 0.0))
+    assert brain.path, "길이 있어야 한다"
+    assert common.distance(*brain.path[-1], *brain.goal) <= config.FOLLOW_GOAL_TOLERANCE, \
+        f"목표까지 가야 한다 (끝 {brain.path[-1]}, 목표 {brain.goal})"
+    assert brain.squeezing
+
+
+def test_replan_keeps_the_roomy_path_when_it_reaches_the_goal():
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain._refresh_plan_grid()
+    brain.goal = (1.0, 0.0)
+    brain._replan((0.0, 0.0, 0.0))
+    assert brain.path and not brain.squeezing
+
+
 def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map():
     brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
     for _ in range(config.LOW_MIN_SIGHTINGS):

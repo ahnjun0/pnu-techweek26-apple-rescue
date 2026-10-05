@@ -367,6 +367,17 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         #    (exploration.candidate_list 의 주석 참고). 후보 선택과 **같은 규칙** 이어야 한다.
         found = planner.plan(self.plan_grid, pose[:2], self.goal,
                              people=self._people_xy)
+        if found and common.distance(*found[-1], *self.goal) > config.FOLLOW_GOAL_TOLERANCE:
+            # ⚠️ 목표 칸이 평소 여유로 막혀 plan() 이 근처 칸으로 바꿔 줬다. 그 길 끝에서
+            #    도착하면 "경로는 끝났는데 목표에 못 닿았다" 로 실패한다 (2026-10-05 2/2 실행:
+            #    14~15번). 좁은 여유로 진짜 목표까지 닿으면 **마지막 구간만** 좁게 잇는다 —
+            #    경로 전체를 좁게 짜면 벽에 붙는다 (위 주석의 1.6~1.9배).
+            tail = planner.plan(self.plan_grid, found[-1], self.goal,
+                                margin=config.PLANNER_SQUEEZE_MARGIN,
+                                people=self._people_xy, exact=True)
+            if tail:
+                found = found + tail[1:]
+                self.squeezing = True
         if not found:
             found = planner.plan(self.plan_grid, pose[:2], self.goal,
                                  margin=config.PLANNER_SQUEEZE_MARGIN,
