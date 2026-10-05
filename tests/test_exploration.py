@@ -538,3 +538,39 @@ def test_a_frontier_whose_stand_spot_falls_across_an_unseen_strip_is_still_offer
     assert near_side, f"로봇 쪽 설 자리로 경계를 내야 한다: {found}"
     assert planner.plan(grid, robot, near_side[0], exact=True,
                         margin=config.PLANNER_SQUEEZE_MARGIN), "그 자리는 실제로 갈 수 있어야 한다"
+
+
+def _tight_corridor_map():
+    """로봇 방 — 폭 0.55 m 복도(좁은 여유로는 막히고 더 좁게만 통과) — 경계가 남은 방."""
+    r, c = common.to_cell(0.0, 0.0)
+    half = common.to_cells(0.25)                    # 가운데 칸이 양쪽 벽에서 0.25 m 남짓
+    grid = mapping.new_map()
+    grid[r - 40:r + 40, c - 40:c + 40] = config.LOG_ODDS_MAX
+    grid[r - 30:r - 10, c - 15:c + 15] = config.LOG_ODDS_MIN           # 로봇 방
+    grid[r - 10:r + 10, c - half:c + half + 1] = config.LOG_ODDS_MIN   # 좁은 복도
+    grid[r + 10:r + 25, c - 15:c + 15] = config.LOG_ODDS_MIN           # 건너편 방
+    grid[r + 25:r + 38, c - 10:c + 10] = 0.0                            # 그 방 너머가 모르는 곳 — 경계
+    return grid, common.to_world(r - 20, c), r
+
+
+def test_a_third_tighter_margin_reaches_rooms_behind_half_metre_doors(monkeypatch):
+    """좁은 여유로도 막힌 폭 0.5 m 남짓 문 뒤의 방을, 세 번째(더 좁은) 여유로 후보에 낸다.
+
+    ⚠️ 대회 월드: 거실로 들어가는 길(의자 다리 사이, 남쪽 문 -9.3,-3.65)이 폭 0.46~0.56 m 다.
+       좁은 여유(반경 0.28 m, 폭 0.56 m 필요)로는 지도에 따라 열리기도 막히기도 해서, 출발을
+       0·3·6·9초 늦춘 네 실행이 모두 거실 사과 자리를 '미지' 로 남겼다.
+    """
+    grid, robot, r = _tight_corridor_map()
+    monkeypatch.setattr(config, "PLANNER_TIGHT_MARGIN", None)
+    far = [s for s, _, _ in exploration.candidate_list(grid, robot) if common.to_cell(*s)[0] > r]
+    assert not far, "꺼져 있으면 예전과 같다"
+    monkeypatch.setattr(config, "PLANNER_TIGHT_MARGIN", 0.12)
+    far = [s for s, _, _ in exploration.candidate_list(grid, robot) if common.to_cell(*s)[0] > r]
+    assert far, "세 번째 여유로는 문 뒤 방의 경계를 낸다"
+
+
+def test_margin_ladder_is_roomy_then_narrow_then_tight(monkeypatch):
+    monkeypatch.setattr(config, "PLANNER_TIGHT_MARGIN", None)
+    assert planner.margin_ladder() == [None, config.PLANNER_SQUEEZE_MARGIN]
+    monkeypatch.setattr(config, "PLANNER_TIGHT_MARGIN", 0.12)
+    assert planner.margin_ladder() == [None, config.PLANNER_SQUEEZE_MARGIN, 0.12]

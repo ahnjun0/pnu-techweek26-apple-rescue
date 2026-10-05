@@ -48,6 +48,18 @@ def _disk_kernel(radius_cells):
     return kernel
 
 
+def margin_ladder():
+    """갈 길을 물을 때 쓰는 여유의 순서: 평소(None) → 좁게 → (켜져 있으면) 더 좁게.
+
+    후보 고르기(exploration.candidate_list)·길 짜기(mission._replan)·집 도달 판정이
+    **같은 순서** 를 써야 한다 — 하나만 다르면 고른 목표로 길을 못 짜거나 그 반대가 된다.
+    """
+    ladder = [None, config.PLANNER_SQUEEZE_MARGIN]
+    if config.PLANNER_TIGHT_MARGIN is not None:
+        ladder.append(config.PLANNER_TIGHT_MARGIN)
+    return ladder
+
+
 def inflate(grid, margin=None):
     """막힌 칸을 로봇 반경 + 여유만큼 부풀린 "가면 안 되는 칸" 마스크를 만든다.
 

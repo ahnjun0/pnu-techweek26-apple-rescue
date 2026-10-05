@@ -237,14 +237,15 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
         # ⚠️ exact=True 로 물어야 한다. plan() 은 목표가 막혀 있으면 근처 칸으로
         #    **목표를 몰래 바꿔** 길을 준다 — 그러면 통과 못 할 것이 없는 필터가
         #    되어 못 가는 구석을 영원히 고른다 (실측: 한자리에 800초).
-        path = planner.plan(grid, robot_xy, (x, y), exact=True)
-        if not path:
-            # ⚠️ 평소 여유로 안 되면 **좁은 여유로 한 번 더** 묻는다 — 아파트 문은 평소 여유로는
-            #    막혀 보인다 (첫 완주에서 남은 프론티어 덩어리 17개 중 13개가 "평소=막힘, 좁게=통과").
-            #    목표 지점은 평소 여유로 고른 자리 그대로다 — 좁게 묻는 것은 "길이 있나" 뿐.
-            #    mission._replan 도 같은 규칙을 쓴다.
-            path = planner.plan(grid, robot_xy, (x, y), exact=True,
-                                margin=config.PLANNER_SQUEEZE_MARGIN)
+        # ⚠️ 평소 여유로 안 되면 **좁은 여유로 한 번 더**(켜져 있으면 더 좁게도) 묻는다 — 아파트
+        #    문은 평소 여유로는 막혀 보인다 (첫 완주에서 남은 프론티어 덩어리 17개 중 13개가
+        #    "평소=막힘, 좁게=통과"). 목표 지점은 평소 여유로 고른 자리 그대로다 — 좁게 묻는 것은
+        #    "길이 있나" 뿐. mission._replan 도 같은 순서(planner.margin_ladder)를 쓴다.
+        path = None
+        for margin in planner.margin_ladder():
+            path = planner.plan(grid, robot_xy, (x, y), exact=True, margin=margin)
+            if path:
+                break
         if not path:
             continue
         # ⚠️ 첫 웨이포인트는 로봇이 **있는 칸의 중심** 이라 로봇 위치와 다르다.
@@ -261,8 +262,8 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
 
 
 def _reachable_cells(grid, robot_xy):
-    """로봇이 좁은 여유로 이어 갈 수 있는 칸 (planner.plan 과 같은 막힘: 팽창 + 미지)."""
-    blocked = (planner.inflate(grid, config.PLANNER_SQUEEZE_MARGIN)
+    """로봇이 가장 좁은 여유로 이어 갈 수 있는 칸 (planner.plan 과 같은 막힘: 팽창 + 미지)."""
+    blocked = (planner.inflate(grid, planner.margin_ladder()[-1])
                | mapping.is_unknown(grid))
     none = np.zeros_like(blocked)
     seed = common.to_cell(*robot_xy)

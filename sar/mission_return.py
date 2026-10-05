@@ -178,17 +178,15 @@ class ReturnMixin:
         return speed, turn
 
     def _home_reachable(self, pose):
-        """지금 자리에서 집까지 계획기로 길이 나오나 (_replan 과 같은 순서: 평소, 안 되면 좁게).
+        """지금 자리에서 집까지 계획기로 길이 나오나 (_replan 과 같은 순서: planner.margin_ladder).
 
         ⚠️ exact=True 다. 아니면 plan() 이 막힌 목표를 근처 칸으로 바꿔 치워 "길이 있다" 고
            답한다 (planner.plan 의 설명 참고) — 갇힌 로봇도 언제나 집에 갈 수 있게 보인다.
         """
         home = self.start_pose[:2]
-        return bool(planner.plan(self.plan_grid, pose[:2], home,
-                                 people=self._people_xy, exact=True)
-                    or planner.plan(self.plan_grid, pose[:2], home,
-                                    margin=config.PLANNER_SQUEEZE_MARGIN,
-                                    people=self._people_xy, exact=True))
+        return any(planner.plan(self.plan_grid, pose[:2], home, margin=margin,
+                                people=self._people_xy, exact=True)
+                   for margin in planner.margin_ladder())
 
     # ------------------------------------------------------------------
 

@@ -136,6 +136,14 @@ FRONTIER_REACHABLE_MARGIN = 0.0
 PLANNER_SQUEEZE_SLACK = 0.05    # [m] 좁게 갈 때 정지거리 위로 남겨 둘 여유
 PLANNER_SQUEEZE_MARGIN = (SAFETY_STOP_DISTANCE + PLANNER_SQUEEZE_SLACK
                           - ROBOT_RADIUS)
+# 세 번째 단계 — 좁은 여유로도 안 되면 이 여유로 한 번 더 묻는다 (None = 끔). 9/30 에 팀이 옵션으로
+# 만들었다가(PLANNER_TIGHT_MARGIN, 측정 전) 공개 정리 때 뺐던 것을 되살렸다.
+# 대회 월드: 거실로 가는 길(의자 다리 사이, 남쪽 문 -9.3,-3.65)이 폭 0.46~0.56 m 라 좁은 여유
+# (반경 0.28 m, 폭 0.56 m 필요)로는 지도에 따라 열렸다 막혔다 했다 — 출발을 0·3·6·9초 늦춘
+# 네 실행이 모두 거실 사과 자리를 '미지' 로 남겼다 (2026-10-06).
+# 반경 0.25 m (폭 0.50 m). 정지거리(0.23)와 같게 두면 경로를 만들자마자 정지가 걸렸으므로
+# (위 PLANNER_SQUEEZE_SLACK 설명) 2 cm 는 남긴다.
+PLANNER_TIGHT_MARGIN = 0.12
 
 # --- 경로 계획 (planner.py) ------------------------------------------------
 # ⚠️ 반드시 지켜야 하는 관계 (tests/test_config_consistency.py 가 검사한다):
