@@ -58,6 +58,8 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self.target_count = config.MISSION_TARGET_COUNT
         # 둘러보기 (SWEEP)
         self._sweep_points = []       # 이미 둘러본 자리
+        self._look_points = []        # 탐색 중 둘러본 자리 (config.EXPLORE_LOOK_*)
+        self._look_sweep = False      # 지금 SWEEP 이 탐색 중 둘러보기인가 (끝나면 탐색으로 돌아간다)
         self._verify_tried = []     # 확인하러 가 본 미확정 후보 (두 번 안 간다)
         self._interrupted_for = []  # 같은 목표물로 두 번 끼어들지 않는다 (떨림 방지)
         self._sweep_turned = 0.0

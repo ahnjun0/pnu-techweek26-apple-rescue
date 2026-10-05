@@ -5,6 +5,7 @@ mission.Mission 이 이 mixin 을 물려받는다. 상태(self.*)는 Mission.__i
 
 import math
 
+import cv2
 import numpy as np
 
 from . import common
@@ -94,6 +95,9 @@ class ExploreMixin:
 
         # --- 목표를 새로 잡아야 하는가 --------------------------------
         if self._needs_new_goal(pose):
+            # 다음 경계로 떠나기 전에, 가까운데 카메라가 못 본 곳이 있으면 먼저 본다.
+            if self._start_nearby_look(pose):
+                return 0.0, 0.0
             if not self._pick_goal(pose):
                 # 더 볼 곳이 없다.
                 self._clear_goal()
@@ -323,18 +327,75 @@ class ExploreMixin:
         spot = self._pick_sweep_point(pose)
         if spot is None:
             return False
+        # ⚠️ **여기서** 기록한다 (도착한 뒤가 아니다). 못 가는 자리를 기록하지
+        #    않으면 다음 선택에서 또 같은 곳이 뽑혀 영원히 반복한다.
+        self._sweep_points.append(spot)
+        _tally("둘러보기 시작")
+        self._begin_sweep(pose, spot)
+        self.status = f"둘러보러 간다 ({spot[0]:+.2f}, {spot[1]:+.2f})"
+        return True
+
+    def _begin_sweep(self, pose, spot):
         self.state = SWEEP
         self.goal = spot
         self._goal_age = 0.0
         self._sweep_turned = 0.0
         self._sweep_theta = None
-        # ⚠️ **여기서** 기록한다 (도착한 뒤가 아니다). 못 가는 자리를 기록하지
-        #    않으면 다음 선택에서 또 같은 곳이 뽑혀 영원히 반복한다.
-        self._sweep_points.append(spot)
-        _tally("둘러보기 시작")
         self._replan(pose)
-        self.status = f"둘러보러 간다 ({spot[0]:+.2f}, {spot[1]:+.2f})"
+
+    def _start_nearby_look(self, pose):
+        """탐색 중, 가까운 "카메라가 못 본 주머니" 를 떠나기 전에 둘러본다 (config.EXPLORE_LOOK_*).
+
+        끝난 뒤 둘러보기(_start_sweep)와 같은 SWEEP 을 쓰되, 끝나면 탐색으로 돌아간다.
+        """
+        if not self._targets_missing() or len(self._look_points) >= config.EXPLORE_LOOK_MAX:
+            return False
+        spot = self._pick_look_point(pose)
+        if spot is None:
+            return False
+        self._look_points.append(spot)      # 못 가는 자리를 또 고르지 않게 미리 적는다
+        self._look_sweep = True
+        _tally("탐색 중 둘러보기 시작")
+        self._begin_sweep(pose, spot)
+        self.status = f"카메라가 못 본 곳을 둘러보러 간다 ({spot[0]:+.2f}, {spot[1]:+.2f})"
         return True
+
+    def _pick_look_point(self, pose):
+        """가까운 큰 주머니(빈 칸 & 카메라 못 봄 & 경계에서 떨어짐)의 중심에 가장 가까운 설 자리."""
+        todo = (mapping.is_free(self.plan_grid) & ~self.camera_seen
+                & ~planner.inflate(self.plan_grid))
+        frontier = exploration.frontier_mask(self.plan_grid)
+        if frontier.any():
+            k = common.to_cells(config.EXPLORE_LOOK_FRONTIER_CLEARANCE)
+            disk = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * k + 1, 2 * k + 1))
+            todo &= cv2.dilate(frontier.astype(np.uint8), disk) == 0
+        count, labels, stats, centres = cv2.connectedComponentsWithStats(
+            todo.astype(np.uint8), connectivity=8)
+        min_cells = config.EXPLORE_LOOK_POCKET / common.cell_area()
+        ban = config.FOLLOW_GOAL_TOLERANCE * 2.0
+        best = None
+        for k in range(1, count):
+            if stats[k, cv2.CC_STAT_AREA] < min_cells:
+                continue
+            cx, cy = common.to_world(centres[k][1], centres[k][0])   # 중심은 (열, 행) 순서다
+            far = common.distance(pose[0], pose[1], cx, cy)
+            if far > config.EXPLORE_LOOK_DISTANCE:
+                continue
+            if any(common.distance(cx, cy, *p) <= ban for p in self._look_points):
+                continue
+            if best is None or far < best[0]:
+                best = (far, k, cx, cy)
+        if best is None:
+            return None
+        _, k, cx, cy = best
+        rows, cols = np.nonzero(labels == k)
+        xs, ys = common.to_world(rows, cols)
+        for i in np.argsort(np.hypot(xs - cx, ys - cy))[:config.MISSION_SWEEP_TRIES]:
+            spot = (float(xs[i]), float(ys[i]))
+            if (common.distance(pose[0], pose[1], *spot) <= config.FOLLOW_GOAL_TOLERANCE
+                    or planner.plan(self.plan_grid, pose[:2], spot, exact=True)):
+                return spot
+        return None
 
     def _pick_sweep_point(self, pose):
         """**카메라가 아직 안 본** 칸에 가장 가까이 설 수 있는 자리를 고른다.
@@ -404,9 +465,7 @@ class ExploreMixin:
                     #    도착하지도 않은 자리에서 360°를 돌고, 그걸 "둘러봤다" 고
                     #    기록했다 — 두 번 틀린다. 이제는 자리를 고를 때 도달성을
                     #    확인하므로 여기 올 일이 드물고, 오면 다음 자리를 고른다.
-                    self._clear_goal()
-                    self._decide_next(pose, exploring_possible=False)
-                    return 0.0, 0.0
+                    return self._end_sweep(pose)
                 self._since_replan += dt
                 speed, turn, status, self.path_index = follower.step(
                     pose, self.path, ranges, self.path_index,
@@ -437,8 +496,14 @@ class ExploreMixin:
         # 한 바퀴 다 돌았다. 둘러보다 찾은 목표물이 있으면 그쪽이 먼저다.
         # (자리는 _start_sweep 에서 이미 기록했다 — 여기서 또 넣으면 실제로 선
         #  자리까지 금지 구역이 되어 다음 후보가 과하게 줄어든다.)
+        return self._end_sweep(pose)
+
+    def _end_sweep(self, pose):
+        # 탐색 중 둘러보기였으면 탐색으로 돌아간다 (끝난 뒤 둘러보기는 다음 할 일을 정한다).
+        exploring = self._look_sweep
+        self._look_sweep = False
         self._clear_goal()
-        self._decide_next(pose, exploring_possible=False)
+        self._decide_next(pose, exploring_possible=exploring)
         return 0.0, 0.0
 
     def _why_no_goal(self, pose):

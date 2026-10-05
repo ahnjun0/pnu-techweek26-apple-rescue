@@ -1095,6 +1095,64 @@ def test_robot_that_is_not_trapped_ends_exploration_as_before():
     assert "갇혔다" not in brain.status
 
 
+def _walled_room(brain, half_cells, open_side=False):
+    """로봇 둘레에 벽으로 닫힌 빈 방을 그린다 (open_side 면 동쪽 벽을 터 경계를 만든다)."""
+    r, c = common.to_cell(0.0, 0.0)
+    brain.grid[r - half_cells - 1:r + half_cells + 2, c - half_cells - 1:c + half_cells + 2] = \
+        config.LOG_ODDS_MAX
+    brain.grid[r - half_cells:r + half_cells + 1, c - half_cells:c + half_cells + 1] = \
+        config.LOG_ODDS_MIN
+    if open_side:
+        brain.grid[r - half_cells:r + half_cells + 1, c + half_cells + 1] = 0.0
+    brain._refresh_plan_grid()
+
+
+def test_a_nearby_room_the_camera_never_saw_is_looked_at_before_moving_on():
+    """LiDAR 로는 다 그렸는데 카메라가 못 본 가까운 방은, 떠나기 전에 둘러본다.
+
+    ⚠️ 대회 월드(2026-10-05): 110초에 화장실 입구까지 와서 LiDAR 로 안을 다 그렸다 —
+       경계가 없어 들어갈 이유가 없었고, 사과는 안쪽 설비에 가려 카메라가 못 봤다.
+       558초 뒤(668초)에야 다시 와서 찾았다. 둘러보기는 탐색이 **끝난 뒤** 에만 썼다.
+    """
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    _walled_room(brain, common.to_cells(0.8))
+    assert brain._start_nearby_look((0.0, 0.0, 0.0))
+    assert brain.state == mission.SWEEP and brain._look_sweep
+    assert "둘러보러" in brain.status
+
+
+def test_after_a_nearby_look_the_robot_goes_back_to_exploring():
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    _walled_room(brain, common.to_cells(0.8))
+    brain.state = mission.SWEEP
+    brain._look_sweep = True
+    brain._sweep_turned = 2.0 * math.pi + 0.1        # 한 바퀴 다 돌았다
+    brain._sweep_theta = 0.0
+    brain._sweep_step((0.0, 0.0, 0.0), clear_lidar(), 0.064)
+    assert brain.state == mission.EXPLORE, brain.status
+    assert not brain._look_sweep
+
+
+def test_a_far_unseen_room_is_left_to_exploration():
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    _walled_room(brain, common.to_cells(0.8))
+    brain.camera_seen[:] = True                       # 이 방은 카메라가 봤다
+    far = config.EXPLORE_LOOK_DISTANCE + 1.0          # 저 멀리 못 본 방
+    r, c = common.to_cell(far, 0.0)
+    half = common.to_cells(0.8)
+    brain.grid[r - half:r + half + 1, c - half:c + half + 1] = config.LOG_ODDS_MIN
+    brain.camera_seen[r - half:r + half + 1, c - half:c + half + 1] = False
+    brain._refresh_plan_grid()
+    assert not brain._start_nearby_look((0.0, 0.0, 0.0))
+
+
+def test_an_unseen_strip_next_to_a_frontier_is_left_to_exploration():
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    _walled_room(brain, common.to_cells(0.4), open_side=True)   # 방 전체가 경계 1 m 안
+    assert not brain._start_nearby_look((0.0, 0.0, 0.0))
+
+
 def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map():
     brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
     for _ in range(config.LOW_MIN_SIGHTINGS):
