@@ -1186,6 +1186,44 @@ def test_replan_keeps_the_roomy_path_when_it_reaches_the_goal():
     assert brain.path and not brain.squeezing
 
 
+def _arrived_brain(end_gap):
+    """경로 끝이 목표에서 end_gap 떨어져 있고, 로봇은 경로 끝 0.19 m 앞에 선 상태."""
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    brain.grid[:] = 0.0                                     # 모르는 칸
+    r, c = common.to_cell(0.0, 0.0)
+    brain.grid[r - 20:r + 20, c - 20:c + common.to_cells(1.2)] = config.LOG_ODDS_MIN
+    brain._refresh_plan_grid()
+    brain.goal = (1.0, 0.0)                                  # 바로 너머가 모르는 칸 — 경계가 남아 있다
+    end = (1.0 - end_gap, 0.0)
+    brain.path = [(0.0, 0.0), end]
+    brain.path_index = 1
+    pose = (end[0] - 0.19, 0.0, 0.0)
+    return brain, pose
+
+
+def test_reaching_a_path_end_right_next_to_the_goal_is_arriving_at_the_goal():
+    """경로 끝이 목표에 붙어 있으면(0.2 m 안) 경로 끝 도착이 곧 목표 도착이다.
+
+    ⚠️ 회귀 방지. 주행기는 경로 끝 0.2 m 안이면 "도착", 임무는 목표 0.2 m 안이어야 도착으로
+       쳤다. 둘이 겹쳐 로봇이 목표 0.21~0.35 m 앞에 서면 "경로는 끝났는데 목표에 못 닿았다"
+       로 실패하고 블랙리스트 횟수가 쌓였다. 대회 월드(2026-10-05) 녹화 재생: 이 실패 11번 중
+       8번이 경로 끝-목표 0.05~0.18 m 였다.
+    """
+    brain, pose = _arrived_brain(end_gap=0.15)
+    brain._since_replan = 0.0
+    brain._explore(pose, np.full(config.LIDAR_RESOLUTION, 5.0), 0.064)
+    assert "경로는 끝났는데" not in brain.status, brain.status
+
+
+def test_a_path_that_ends_well_short_of_the_goal_is_still_a_failure():
+    """경로 끝이 목표에서 멀면(근처 칸으로 바뀐 경우) 예전처럼 실패다 — 같은 목표를 영원히 다시 고르지 않게."""
+    brain, pose = _arrived_brain(end_gap=0.45)
+    brain._since_replan = 0.0
+    brain._explore(pose, np.full(config.LIDAR_RESOLUTION, 5.0), 0.064)
+    assert "경로는 끝났는데" in brain.status, brain.status
+
+
 def test_low_obstacles_are_walls_in_the_plan_grid_but_not_in_the_lidar_map():
     brain = mission.Mission(start_pose=(0.0, 0.0, 0.0))
     for _ in range(config.LOW_MIN_SIGHTINGS):

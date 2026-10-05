@@ -146,7 +146,14 @@ class ExploreMixin:
             #    영영 미지로 남고 프론티어를 계속 만든다. 즉 "못 가는 목표" 는
             #    예외가 아니라 항상 생긴다. 반드시 실패로 처리해 블랙리스트에 넣어야
             #    한다.
-            if self.goal is not None and \
+            # ⚠️ 경로 끝이 목표에 붙어 있으면(FOLLOW_GOAL_TOLERANCE 안) 경로 끝 도착이 곧 목표
+            #    도착이다. 주행기는 경로 끝 0.2 m 안이면 "도착" 이라 하므로, 그 끝이 목표에서
+            #    0.15 m 만 떨어져 있어도 로봇은 목표 0.35 m 앞에 선다 — 그걸 실패로 쳐서
+            #    블랙리스트 횟수가 쌓였다 (2026-10-05 녹화 재생: 이 실패 11번 중 8번).
+            #    끝이 멀리 바뀐 경우(위 800초 고리)는 그대로 실패다.
+            end_next_to_goal = (self.goal is not None and self.path and common.distance(
+                *self.path[-1], *self.goal) <= config.FOLLOW_GOAL_TOLERANCE)
+            if self.goal is not None and not end_next_to_goal and \
                     common.distance(*pose[:2], *self.goal) > config.FOLLOW_GOAL_TOLERANCE:
                 self._fail_goal("경로는 끝났는데 목표에 못 닿았다")
             elif self.goal is not None and \
