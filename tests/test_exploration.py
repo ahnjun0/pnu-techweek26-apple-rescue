@@ -213,6 +213,18 @@ def test_blacklist_counts_nearby_failures_together():
     assert blacklist.contains(1.0, 1.0)
 
 
+def test_blacklist_counts_failures_within_its_radius_even_across_rounding_cells():
+    """반경 안의 실패는 같은 목표다 — 0.1 m 반올림 칸이 달라도.
+
+    ⚠️ 회귀 방지. 실패를 좌표 반올림(0.1 m) 칸별로 셌다. 대회 월드(2026-10-06) 녹화: 같은 자리의
+       세 실패 (-4.47,-6.22) (-4.53,-6.28) (-4.57,-6.32) 가 서로 다른 칸으로 세어져 금지되지 않았다.
+    """
+    blacklist = exploration.Blacklist(max_failures=3)
+    for x, y in [(-4.47, -6.22), (-4.53, -6.28), (-4.57, -6.32)]:
+        blacklist.record_failure(x, y)
+    assert blacklist.contains(-4.53, -6.28)
+
+
 def test_blacklist_covers_a_radius_not_a_point():
     blacklist = exploration.Blacklist(radius=0.5, max_failures=1)
     blacklist.record_failure(2.0, 2.0)

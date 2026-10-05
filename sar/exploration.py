@@ -109,11 +109,11 @@ class Blacklist:
         self.max_failures = (config.FRONTIER_MAX_FAILURES if max_failures is None
                              else max_failures)
         self.banned = []      # [(x, y), ...] 완전히 제외된 곳
-        self._failures = {}   # 반올림한 좌표 -> 실패 횟수
-
-    @staticmethod
-    def _key(x, y):
-        return (round(x, 1), round(y, 1))
+        # 실패한 자리들. 횟수는 반경(radius) 안의 실패를 함께 센다.
+        # ⚠️ 예전에는 좌표를 0.1 m 로 반올림한 칸별로 셌다 — 목표가 0.05 m 만 흔들려도 다른
+        #    칸이 되어, 같은 자리 실패 셋이 서로 다른 칸으로 세어지고 금지되지 않았다
+        #    (대회 월드 2026-10-06: (-4.47,-6.22) (-4.53,-6.28) (-4.57,-6.32)).
+        self._failed = []
 
     def record_failure(self, x, y, immediate=False):
         """한 번 실패했다고 기록한다. 한도를 넘으면 블랙리스트에 넣는다.
@@ -126,15 +126,16 @@ class Blacklist:
 
         돌려주는 값: 이번에 블랙리스트에 들어갔으면 True.
         """
-        key = self._key(x, y)
-        self._failures[key] = self._failures.get(key, 0) + 1
-        if immediate or self._failures[key] >= self.max_failures:
+        self._failed.append((x, y))
+        if immediate or self.failures(x, y) >= self.max_failures:
             self.banned.append((x, y))
             return True
         return False
 
     def failures(self, x, y):
-        return self._failures.get(self._key(x, y), 0)
+        """(x, y) 반경 안에서 실패한 횟수."""
+        return sum(1 for fx, fy in self._failed
+                   if common.distance(fx, fy, x, y) <= self.radius)
 
     def contains(self, x, y):
         """이 좌표가 블랙리스트 반경 안에 있는가."""
@@ -143,7 +144,7 @@ class Blacklist:
 
     def clear(self):
         self.banned.clear()
-        self._failures.clear()
+        self._failed.clear()
 
 
 def choose(grid, robot_xy, blacklist=None, min_distance=None):
