@@ -36,7 +36,10 @@ from debug import truth as truth_mod
 #   다리 boundingObject: Capsule radius 0.075, 중심에서 y = ±0.116
 #   (PROTO 400~406행 / 499~505행)  → 0.116 + 0.075 = 0.191
 # LiDAR 가 있는 높이(z≈0.17 m)에서 실제로 부딪히는 것은 다리다.
-FRAME_EVERY = 8        # 카메라 프레임을 몇 틱마다 남길 것인가
+# 카메라 프레임을 몇 틱마다 남길 것인가 (GIF·시각화용, 판단과 무관). SAR_FRAME_EVERY=0 이면 안 남긴다.
+# ⚠️ 프레임은 실행 내내 **메모리** 에 쌓인다 (8틱마다면 한 번에 약 1.2 GB, 저장할 때 한 번 더 복사).
+#    2026-10-05 에 셋을 동시에 돌렸다가 메모리·스왑·디스크가 차서 세션이 죽었다.
+FRAME_EVERY = int(os.environ.get("SAR_FRAME_EVERY", "8"))
 PERSON_RADIUS = 0.191
 # 여러 실행을 동시에 돌릴 때 결과가 서로 덮어쓰지 않게 SAR_OUT 으로 바꿀 수 있다.
 OUT_DIR = os.environ.get("SAR_OUT") or os.path.join(
@@ -461,7 +464,7 @@ def main():
                 tape["person"].append((px, py))
                 tape["truth"].append(tuple(truth))
                 tape["cmd"].append((speed, turn))
-                if image is not None and tick % FRAME_EVERY == 0:
+                if image is not None and FRAME_EVERY and tick % FRAME_EVERY == 0:
                     frames["t"].append(brain.elapsed)
                     frames["image"].append(image.copy())
                     frames["pose"].append(tuple(pose))
