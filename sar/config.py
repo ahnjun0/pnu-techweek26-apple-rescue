@@ -342,7 +342,9 @@ PEOPLE_KF_COAST = 0.5           # [s] 한동안 안 보여도 예측 위치로 �
 # 목표 앞에서 머뭇거리는데 사람이 **나를 향해** 걸어오면 아무도 안 비킨다.
 # 그래서 "가만히 있으면 부딪힌다" 가 예측되면 하던 일을 멈추고 비킨다.
 # 대회 월드(2026-10-05): 둘러보며 제자리에서 도는 동안 보행자 줄 위에 있다가 5.9초 닿았다.
-EVADE_ENABLED = True
+# ⚠️ 지금은 끈다. 대회 월드(2026-10-06) 한 실행에서 15번 넘게 작동하며 시간만 쓰고 접촉(4.5초)을
+#    못 막았다 — 사람이 소파 뒤에서 갑자기 나타나면 추적이 늦다. 분포로 다시 잰 뒤 켠다.
+EVADE_ENABLED = False
 PERSON_BODY_RADIUS = 0.191      # [m] Pedestrian.proto 다리 캡슐 (debug/mission_check.py PERSON_RADIUS 와 같은 근거)
 EVADE_MARGIN = 0.10             # [m] 몸끼리 닿기 직전이 아니라 이만큼 떨어져 있고 싶다
 EVADE_KEEP_DISTANCE = ROBOT_RADIUS + PERSON_BODY_RADIUS + EVADE_MARGIN   # 중심 간 금지 반경 (0.42 m)
