@@ -102,6 +102,8 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self._arrival_retried = False   # APPROACH 에서 도착 후 한 번 재계획했는가
         self._look_age = 0.0            # 확정 전 후보를 바라본 시간 [s]
         self._pushed_from = None        # 경계가 그대로라 더 들어가기 전의 목표 (목표당 한 번)
+        self._glance_points = []        # 고개를 돌려 본 자리 (config.GLANCE_*)
+        self._glance_heading = None     # 지금 돌아보는 방향 [rad] (없으면 None)
         self._since_replan = 0.0
         self._stuck_time = 0.0
         self._stuck_anchor = None   # 끼임 판정을 위한 기준 위치

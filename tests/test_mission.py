@@ -1225,3 +1225,43 @@ def test_pushing_deeper_happens_only_once_per_goal():
     brain.path_index = 1
     brain._explore((0.0, deeper[1] - 0.19, math.pi / 2), np.full(config.LIDAR_RESOLUTION, 5.0), 0.064)
     assert "프론티어가 그대로다" in brain.status, brain.status
+
+
+def _glance_brain(unseen_xy):
+    """빈 방 한가운데 로봇(동쪽을 봄). unseen_xy 둘레 0.3 m 만 카메라가 못 봤다."""
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    brain._camera_fov = 1.0472
+    brain.grid[:] = config.LOG_ODDS_MIN
+    brain._refresh_plan_grid()
+    brain.camera_seen[:] = True
+    if unseen_xy is not None:
+        r, c = common.to_cell(*unseen_xy)
+        k = common.to_cells(0.3)
+        brain.camera_seen[r - k:r + k + 1, c - k:c + k + 1] = False
+    return brain
+
+
+def test_robot_glances_at_a_nearby_patch_the_camera_has_not_seen():
+    """바로 옆(1.2 m 안)에 카메라가 못 본 곳이 시야 밖에 있으면, 떠나기 전에 그쪽으로 고개를 돌린다.
+
+    ⚠️ 대회 월드(2026-10-06, 크기 가산점 상한 실행): 165.4초에 화장실 사과에서 0.5 m 떨어진 자리에
+       섰지만 머리가 남서쪽을 봐서 사과가 시야(±30°) 밖이었고, 그대로 다음 목표로 떠났다.
+    """
+    brain = _glance_brain((-0.8, 0.0))                         # 바로 뒤
+    speed, turn = brain._explore((0.0, 0.0, 0.0), np.full(config.LIDAR_RESOLUTION, 5.0), 0.064)
+    assert speed == 0.0 and abs(turn) > 0.0, (speed, turn, brain.status)
+    assert "돌아본다" in brain.status
+
+
+def test_no_glance_when_the_unseen_patch_is_already_in_view_or_far():
+    for spot in [(0.8, 0.0), (2.5, 2.5)]:                     # 정면 / 멀다
+        brain = _glance_brain(spot)
+        assert not brain._start_glance((0.0, 0.0, 0.0)), spot
+
+
+def test_glance_happens_once_per_place():
+    brain = _glance_brain((-0.8, 0.0))
+    assert brain._start_glance((0.0, 0.0, 0.0))
+    brain._glance_heading = None                               # 다 돌아봤다고 치자
+    assert not brain._start_glance((0.1, 0.0, 0.0)), "같은 자리에서는 한 번만"

@@ -94,8 +94,13 @@ class ExploreMixin:
                 return 0.0, 0.0
 
         # --- 목표를 새로 잡아야 하는가 --------------------------------
+        if self._glance_heading is not None:
+            return self._glance(pose)
         if self._needs_new_goal(pose):
-            # 다음 경계로 떠나기 전에, 가까운데 카메라가 못 본 곳이 있으면 먼저 본다.
+            # 떠나기 전에, 바로 옆인데 카메라가 못 본 곳이 시야 밖이면 고개부터 돌린다.
+            if self._start_glance(pose):
+                return self._glance(pose)
+            # 가까운데 카메라가 못 본 곳이 있으면 먼저 본다.
             if self._start_nearby_look(pose):
                 return 0.0, 0.0
             if not self._pick_goal(pose):
@@ -346,6 +351,47 @@ class ExploreMixin:
         self._sweep_turned = 0.0
         self._sweep_theta = None
         self._replan(pose)
+
+    def _start_glance(self, pose):
+        """바로 옆(GLANCE_RADIUS)에 카메라가 못 본 빈칸이 시야 밖에 있으면 돌아볼 방향을 정한다."""
+        if not self._targets_missing() or not self._camera_fov:
+            return False
+        if any(common.distance(pose[0], pose[1], *p) < config.GLANCE_SPACING
+               for p in self._glance_points):
+            return False
+        k = common.to_cells(config.GLANCE_RADIUS)
+        r0, c0 = common.to_cell(pose[0], pose[1])
+        rows = slice(max(0, r0 - k), r0 + k + 1)
+        cols = slice(max(0, c0 - k), c0 + k + 1)
+        seen = self.camera_seen[rows, cols].astype(np.uint8)
+        s = config.GLANCE_SEEN_SLACK
+        seen = cv2.dilate(seen, np.ones((2 * s + 1, 2 * s + 1), np.uint8)) > 0
+        todo = mapping.is_free(self.plan_grid[rows, cols]) & ~seen
+        rr, cc = np.nonzero(todo)
+        if len(rr) == 0:
+            return False
+        xs, ys = common.to_world(rr + rows.start, cc + cols.start)
+        near = np.hypot(xs - pose[0], ys - pose[1]) <= config.GLANCE_RADIUS
+        if near.sum() * common.cell_area() < config.GLANCE_MIN_AREA:
+            return False
+        heading = math.atan2(ys[near].mean() - pose[1], xs[near].mean() - pose[0])
+        if abs(common.wrap_angle(heading - pose[2])) <= self._camera_fov / 2.0 * 0.6:
+            return False                  # 이미 시야 안이다
+        self._glance_points.append((pose[0], pose[1]))
+        self._glance_heading = heading
+        _tally("고개 돌리기")
+        return True
+
+    def _glance(self, pose):
+        error = common.wrap_angle(self._glance_heading - pose[2])
+        if abs(error) <= config.GLANCE_DONE_ANGLE:
+            self._glance_heading = None
+            self.status = "돌아봤다 — 탐색을 이어 간다"
+            return 0.0, 0.0
+        turn = max(-config.FOLLOW_MAX_TURN,
+                   min(config.FOLLOW_MAX_TURN, config.FOLLOW_TURN_GAIN * error))
+        self.status = "카메라가 못 본 옆자리를 돌아본다"
+        return 0.0, turn
 
     def _start_nearby_look(self, pose):
         """탐색 중, 가까운 "카메라가 못 본 주머니" 를 떠나기 전에 둘러본다 (config.EXPLORE_LOOK_*).
