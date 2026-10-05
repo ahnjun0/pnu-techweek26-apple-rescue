@@ -100,6 +100,7 @@ class Mission(ExploreMixin, ApproachMixin, ReturnMixin):
         self._escaping_for = 0.0    # 탈출이 연속된 시간 [s]
         self._frozen_left = 0.0     # 바퀴를 멈춰 둘 남은 시간 [s]
         self._arrival_retried = False   # APPROACH 에서 도착 후 한 번 재계획했는가
+        self._home_arrival_retried = False   # RETURN 에서 경로 끝 도착 후 한 번 재계획했는가
         self._look_age = 0.0            # 확정 전 후보를 바라본 시간 [s]
         self._pushed_from = None        # 경계가 그대로라 더 들어가기 전의 목표 (목표당 한 번)
         self._glance_points = []        # 고개를 돌려 본 자리 (config.GLANCE_*)

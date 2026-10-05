@@ -15,6 +15,7 @@ from sar import exploration
 from sar import follower
 from sar import mapping
 from sar import mission
+from sar import mission_return
 from sar import planner
 
 
@@ -1001,6 +1002,33 @@ def test_a_return_that_keeps_moving_never_backs_out():
         x = 1.0 - 0.01 * k                                   # 조금씩이라도 나아간다
         brain._return((x, 1.0, math.pi), clear_lidar(), 0.064)
     assert not brain._unstick and "막혀" not in brain.status
+
+
+def test_backing_out_stops_at_the_unstick_distance_even_when_the_trail_starts_far_away():
+    """복귀 중에는 지나온 길을 안 적는다 — 되짚을 길의 첫 구간이 복귀를 시작한 자리까지 수 m 일 수 있다.
+
+    ⚠️ 회귀 방지. 2026-10-06 지연 3초: 집 0.4 m 앞에서 맴돌다 되짚기가 걸렸는데, 첫 구간(6.7 m)을
+       통째로 넣어 로봇이 거실까지 거슬러 갔고 복귀 시간이 끝났다 (진짜로는 집 7 cm 앞이었다).
+    """
+    trail = mission_return._first_metres([(5.0, 0.0), (0.0, 0.0)], 1.5)
+    assert trail[0] == (5.0, 0.0)
+    assert trail[-1] == pytest.approx((3.5, 0.0))
+
+
+def test_return_ends_where_the_planner_cannot_bring_it_closer_to_home(monkeypatch):
+    """경로 끝에 왔는데 집이 아직 멀면, 다시 짜 보고 그래도 같으면 그 자리를 집으로 친다 (APPROACH 와 같다).
+
+    2026-10-06: 추정 위치가 35 cm 틀어져 로봇이 아는 집이 벽 팽창 안에 들어갔다. 집 0.41 m 앞
+    경로 끝에서 20초를 서 있었다 (옛 실행 셋에서 같은 일).
+    """
+    brain = _stuck_return_brain()
+    monkeypatch.setattr(mission_return.follower, "step",
+                        lambda pose, path, *a, **k: (0.0, 0.0, follower.ARRIVED, len(path) - 1))
+    pose = (0.0, 0.41, 0.0)
+    brain._return(pose, clear_lidar(), 0.064)
+    assert brain.state == mission.RETURN, "한 번은 다시 짜 본다"
+    brain._return(pose, clear_lidar(), 0.064)
+    assert brain.state == mission.DONE, brain.status
 
 
 def test_after_backing_out_the_robot_plans_home_again():

@@ -38,14 +38,21 @@ def retrace(crumbs, join=None):
 
 
 def _first_metres(points, metres):
-    """꺾은선 points 의 앞에서부터 길이가 metres 에 닿는 점까지."""
+    """꺾은선 points 의 앞에서부터 길이 metres 까지. 마지막 구간은 그 길이에서 자른다.
+
+    ⚠️ 마지막 구간을 통째로 넣었더니, 복귀 중에는 지나온 길을 안 적어서 첫 구간이 복귀를 시작한
+       자리까지 6.7 m 였고 로봇이 그만큼 거슬러 가 복귀 시간이 끝났다 (2026-10-06 지연 3초).
+    """
     out = [points[0]]
     total = 0.0
     for a, b in zip(points, points[1:]):
+        step = common.distance(*a, *b)
+        if total + step >= metres:
+            ratio = (metres - total) / step if step > 0.0 else 0.0
+            out.append((a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio))
+            return out
         out.append(b)
-        total += common.distance(*a, *b)
-        if total >= metres:
-            break
+        total += step
     return out
 
 
@@ -150,6 +157,19 @@ class ReturnMixin:
             pose, self.path, ranges, self.path_index,
             current_speed=self.last_speed, current_turn=self.last_turn, dt=dt,
             allow_idle=self._person_is_close(pose), people=self._people + self._low_ghosts())
+        # 경로 끝에 왔는데 집이 아직 멀면 계획기가 더 가까이 못 데려다 주는 것이다 (집 칸이 팽창 안).
+        # APPROACH 와 같이 한 번 다시 짜 보고, 그래도 같으면 그 자리를 집으로 친다.
+        # ⚠️ 2026-10-06: 추정 위치가 35 cm 틀어져 로봇이 아는 집이 벽 팽창 안에 들어갔고, 집 0.41 m
+        #    앞에서 20초를 서 있다가 되짚기로 빠졌다 (진짜로는 집 7 cm 앞이었다). 옛 실행 셋에서 같은 일.
+        if status == follower.ARRIVED:
+            if not self._home_arrival_retried:
+                self._home_arrival_retried = True
+                self._replan(pose)
+                return 0.0, 0.0
+            self.state = DONE
+            self.status = f"복귀 완료 — 시작점 {gap * 100:.0f} cm 앞, 계획기가 더 못 다가간다"
+            return 0.0, 0.0
+        self._home_arrival_retried = False
         self.status = f"RETURN — {status} ({gap:.2f} m 남음)"
         return speed, turn
 
