@@ -256,7 +256,7 @@ def candidate_list(grid, robot_xy, blacklist=None, min_distance=None,
 
     # 큰 경계(새 방 입구)를 가까운 작은 경계들 뒤로 밀지 않게 — 크기만큼 거리를 깎는다.
     # ⚠️ 대회 조건 실행: 서쪽 방 입구 앞 131칸 경계를 끝까지 안 가고 작은 경계만 오가다 시간이 끝났다.
-    scored.sort(key=lambda item: item[1] - config.FRONTIER_SIZE_BONUS * item[2])
+    scored.sort(key=lambda item: frontier_score(item[1], item[2]))
     return scored
 
 
@@ -287,6 +287,15 @@ def _nearest_cell(mask, cell, radius_cells):
     rows, cols = rows + r0, cols + c0
     k = int(np.argmin((rows - row) ** 2 + (cols - col) ** 2))
     return int(rows[k]), int(cols[k])
+
+
+def frontier_score(path_length, size):
+    """후보 점수 [m] (작을수록 먼저): 경로 길이에서 큰 경계 가산점을 뺀다. 가산점에는 상한이 있다.
+
+    ⚠️ 상한이 없으면 99칸짜리 경계가 0.99 m 를 깎아 받아, 1 m 가까운 좁은 문 방을 뒤로 민다
+       (대회 월드 140.7초: 화장실 문 2.15 m·14칸 대 서쪽 3.02 m·99칸 — 2.01 대 2.03).
+    """
+    return path_length - min(config.FRONTIER_SIZE_BONUS * size, config.FRONTIER_SIZE_BONUS_CAP)
 
 
 def frontier_near(grid, x, y, radius=None):

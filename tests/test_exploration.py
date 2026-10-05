@@ -538,3 +538,17 @@ def test_a_frontier_whose_stand_spot_falls_across_an_unseen_strip_is_still_offer
     assert near_side, f"로봇 쪽 설 자리로 경계를 내야 한다: {found}"
     assert planner.plan(grid, robot, near_side[0], exact=True,
                         margin=config.PLANNER_SQUEEZE_MARGIN), "그 자리는 실제로 갈 수 있어야 한다"
+
+
+def test_size_bonus_is_capped_so_a_far_big_frontier_cannot_jump_a_much_closer_door(monkeypatch):
+    """큰 경계 가산점(칸당 FRONTIER_SIZE_BONUS)에는 상한이 있다.
+
+    ⚠️ 대회 월드(2026-10-06 녹화 재생, 140.7초): 화장실 문 경계(경로 2.15 m, 14칸)와 서쪽
+       경계(3.02 m, 99칸)의 점수가 2.01 대 2.03 이었다 — 99칸이 0.99 m 를 깎아 받아, 1 m 가까운
+       좁은 문 방을 뒤로 밀었다. 화장실 사과는 그 뒤 650초가 지나서야 찾았다.
+    """
+    monkeypatch.setattr(config, "FRONTIER_SIZE_BONUS", 0.01)
+    monkeypatch.setattr(config, "FRONTIER_SIZE_BONUS_CAP", 0.5)
+    assert exploration.frontier_score(2.15, 14) < exploration.frontier_score(3.02, 99)
+    assert exploration.frontier_score(3.0, 20) > exploration.frontier_score(3.0, 99), \
+        "길이가 같으면 큰 경계가 여전히 먼저다"

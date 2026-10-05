@@ -160,6 +160,8 @@ FRONTIER_MIN_CLUSTER = 4            # [칸] 이보다 작은 프론티어 덩어
 # 큰 경계(새 방 입구)를 가까운 작은 경계들보다 먼저 가게 한다 (대회 조건에서 서쪽 방 입구).
 # 0.025 이상은 초반에 포기했다.
 FRONTIER_SIZE_BONUS = 0.01          # [m/칸] 덩어리가 클수록 깎아 주는 거리
+# 그 가산점의 상한 [m]. 상한이 없으면 큰 경계가 1 m 가까운 좁은 문 방을 뒤로 민다 (exploration.frontier_score).
+FRONTIER_SIZE_BONUS_CAP = 0.5
 FRONTIER_MIN_DISTANCE = 0.25        # [m] 너무 가까운 프론티어는 무시 (제자리 맴돌기 방지)
 
 
