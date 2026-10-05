@@ -1186,3 +1186,42 @@ def test_no_slip_when_the_compass_follows_the_wheels():
     assert brain.slip_spots == []
 
 
+
+
+def _doorway_brain():
+    """로봇이 경계 목표 0.19 m 앞에 서 있고, 목표 너머로 0.6 m 쯤 아는 빈칸이 이어진 뒤 모르는 곳."""
+    brain = mission.Mission((0.0, 0.0, 0.0))
+    brain.state = mission.EXPLORE
+    r, c = common.to_cell(0.0, 0.0)
+    brain.grid[:] = config.LOG_ODDS_MAX
+    brain.grid[r - 30:r + common.to_cells(0.6), c - 10:c + 10] = config.LOG_ODDS_MIN
+    brain.grid[r + common.to_cells(0.6):r + 30, c - 10:c + 10] = 0.0          # 그 너머는 모름
+    brain._refresh_plan_grid()
+    brain.goal = (0.0, 0.0)
+    brain.path = [(0.0, -1.0), (0.0, 0.0)]
+    brain.path_index = 1
+    return brain, (0.0, -0.19, math.pi / 2)
+
+
+def test_arriving_at_a_frontier_that_stays_pushes_a_little_deeper_once():
+    """경계 목표에 왔는데 경계가 그대로면, 실패로 치기 전에 같은 방향으로 조금 더 들어간다.
+
+    ⚠️ 대회 월드(2026-10-05, 2/2 실행): 110초에 화장실 문 앞 경계에 도착했지만 좁은 문 앞에서는
+       LiDAR 가 안쪽 모서리를 못 봐 경계가 남았고, "도착했는데 프론티어가 그대로다" 로 떠났다.
+       화장실 사과는 558초 뒤에야 찾았다 (M930 은 140초).
+    """
+    brain, pose = _doorway_brain()
+    brain._explore(pose, np.full(config.LIDAR_RESOLUTION, 5.0), 0.064)
+    assert "더 들어가" in brain.status, brain.status
+    assert brain.goal is not None and brain.goal[1] > 0.3, f"목표를 안쪽으로 옮겨야 한다: {brain.goal}"
+    assert brain.path, "옮긴 목표로 길을 짜야 한다"
+
+
+def test_pushing_deeper_happens_only_once_per_goal():
+    brain, pose = _doorway_brain()
+    brain._explore(pose, np.full(config.LIDAR_RESOLUTION, 5.0), 0.064)     # 한 번 밀었다
+    deeper = brain.goal
+    brain.path = [(0.0, deeper[1] - 1.0), deeper]
+    brain.path_index = 1
+    brain._explore((0.0, deeper[1] - 0.19, math.pi / 2), np.full(config.LIDAR_RESOLUTION, 5.0), 0.064)
+    assert "프론티어가 그대로다" in brain.status, brain.status

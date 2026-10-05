@@ -151,6 +151,10 @@ class ExploreMixin:
                 self._fail_goal("경로는 끝났는데 목표에 못 닿았다")
             elif self.goal is not None and \
                     exploration.frontier_near(self.plan_grid, *self.goal):
+                # 좁은 문 바로 앞에서는 LiDAR 가 안쪽 모서리를 못 봐 경계가 남는다 — 실패로
+                # 치기 전에 한 번만 조금 더 들어가 본다 (config.EXPLORE_PUSH_DISTANCE).
+                if self._push_deeper(pose):
+                    return 0.0, 0.0
                 self._fail_goal("도착했는데 프론티어가 그대로다")
             else:
                 self.status = f"목표 도착 ({self.goal[0]:+.2f}, {self.goal[1]:+.2f})"
@@ -549,6 +553,46 @@ class ExploreMixin:
                 f" 평소={ok} 좁게={tight}"
                 f"{' [블랙리스트]' if banned else ''}")
         print("\n".join(lines), flush=True)
+
+    def _push_deeper(self, pose):
+        """경계 목표에 왔는데 경계가 그대로면, 같은 방향으로 아는 빈칸을 따라 조금 더 들어간다.
+
+        목표 하나에 한 번만 한다 (_pushed_from). 옮길 자리가 없거나 길이 없으면 False.
+        ⚠️ 대회 월드(2026-10-05, 2/2 실행): 110초에 화장실 문 앞 경계에 도착했지만 경계가
+           남아 떠났고, 화장실 사과는 558초 뒤에야 찾았다.
+        """
+        if self._pushed_from is not None:
+            return False
+        gx, gy = self.goal
+        dx, dy = gx - pose[0], gy - pose[1]
+        norm = math.hypot(dx, dy)
+        if norm < 1e-6:
+            dx, dy, norm = math.cos(pose[2]), math.sin(pose[2]), 1.0
+        ux, uy = dx / norm, dy / norm
+        free = mapping.is_free(self.plan_grid)
+        blocked = planner.inflate(self.plan_grid, config.PLANNER_SQUEEZE_MARGIN)
+        deeper = None
+        step = common.cells_to_metres(1)       # 한 칸씩 더 들어가 본다
+        s = step
+        while s <= config.EXPLORE_PUSH_DISTANCE + 1e-9:
+            spot = (gx + ux * s, gy + uy * s)
+            cell = common.to_cell(*spot)
+            if not common.in_bounds(*cell) or not free[cell] or blocked[cell]:
+                break
+            deeper = spot
+            s += step
+        if deeper is None or common.distance(*deeper, gx, gy) < config.FOLLOW_GOAL_TOLERANCE:
+            return False
+        self._pushed_from = self.goal
+        self.goal = deeper
+        self._goal_age = 0.0
+        self._replan(pose)
+        if not self.path:
+            self.goal = self._pushed_from
+            return False
+        _tally("경계가 그대로라 조금 더 들어감")
+        self.status = f"경계가 그대로다 — 조금 더 들어가 본다 ({deeper[0]:+.2f}, {deeper[1]:+.2f})"
+        return True
 
     def _pick_goal(self, pose):
         """다음 프론티어를 고르고 경로를 세운다. 성공하면 True.
