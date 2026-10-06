@@ -240,15 +240,17 @@ if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     WHOLE = (-13.2, 1.2, -13.8, 0.6)
     if "full" in which:
-        topdown(RUN_BEST, 0, 483, 2.0, "gif1_full.gif", WHOLE, "전체 주행", fps=15, trail_from=0)
+        topdown(RUN_BEST, 0, 483, 2.0, "gif1_full.gif", WHOLE, "전체 주행", fps=15, trail_from=0, hold=2)
     if "carpet" in which:
         topdown(RUN_CARPET, 296, 312, 0.25, "gif2_carpet.gif", (-8.0, -4.4, -4.6, -0.6),
-                "카펫 턱 미끄러짐", show_est=True, fps=10, trail_from=280)
+                "카펫 턱 미끄러짐", show_est=True, fps=10, trail_from=280, hold=1)
     if "apple" in which:
         camera(RUN_BEST, 358, 375, "gif3_apple_camera.gif")
     if "ped" in which:
-        topdown(RUN_BEST, 326, 345, 0.25, "gif4_pedestrian.gif", (-8.0, -3.0, -6.0, -1.0),
-                "보행자와 교차", fps=10, trail_from=310)
+        # ⚠️ 예전 장면(326~345초)에는 진짜 보행자가 없었다 — 노트북을 보행자로 그렸다 (머리말 참고).
+        #    이 실행에서 보행자를 실제로 만난 것은 415~437초다 (최소 0.39 m, 복귀 중).
+        topdown(RUN_BEST, 408, 440, 0.25, "gif4_pedestrian.gif", (-7.0, -3.4, -4.6, -1.0),
+                "보행자와 엇갈림 (복귀 중)", fps=10, trail_from=395, hold=1)
     if "best1006" in which:
         topdown(RUN_BEST, 0, None, 2.0, "gif6_full_1006.gif", WHOLE, "전체 주행 (10/6)", fps=15,
                 trail_from=0, hold=2)
@@ -257,4 +259,4 @@ if __name__ == "__main__":
                 "보행자와 스침 (10/6)", fps=10, trail_from=440, hold=1)
     if "retrace" in which:
         topdown(RUN_BEST, 414, 452, 0.4, "gif5_retrace.gif", (-7.4, -2.9, -6.4, -0.8),
-                "지나온 길 되짚기", fps=10, trail_from=414, faint_from=0)
+                "지나온 길 되짚기", fps=10, trail_from=414, faint_from=0, hold=1)
