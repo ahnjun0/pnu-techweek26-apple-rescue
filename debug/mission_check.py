@@ -40,6 +40,9 @@ from debug import truth as truth_mod
 # ⚠️ 프레임은 실행 내내 **메모리** 에 쌓인다 (8틱마다면 한 번에 약 1.2 GB, 저장할 때 한 번 더 복사).
 #    2026-10-05 에 셋을 동시에 돌렸다가 메모리·스왑·디스크가 차서 세션이 죽었다.
 FRAME_EVERY = int(os.environ.get("SAR_FRAME_EVERY", "8"))
+# 남길 구간 [s] (판단 시계 기준). 한 판 내내 남기면 메모리를 1 GB 가까이 쓴다 — GIF 장면만 남긴다.
+FRAME_FROM = float(os.environ.get("SAR_FRAME_FROM", "0"))
+FRAME_TO = float(os.environ.get("SAR_FRAME_TO", "inf"))
 # 견고성 시험용: 로봇 출발을 이만큼 [s] 늦춘다 (그동안 제자리에 선다). 보행자는 그대로 움직이므로
 # 보행자와의 시간 관계(위상)만 바뀐다 — 대회에서도 알 수 없는 값이다. 0 이면 끈다 (대회 조건).
 # 실행 하나는 보행자를 만나는 시점에 크게 흔들려서, 설정 비교는 여러 지연값의 분포로 한다.
@@ -471,7 +474,8 @@ def main():
                 tape["person"].append((px, py))
                 tape["truth"].append(tuple(truth))
                 tape["cmd"].append((speed, turn))
-                if image is not None and FRAME_EVERY and tick % FRAME_EVERY == 0:
+                if (image is not None and FRAME_EVERY and tick % FRAME_EVERY == 0
+                        and FRAME_FROM <= brain.elapsed <= FRAME_TO):
                     frames["t"].append(brain.elapsed)
                     frames["image"].append(image.copy())
                     frames["pose"].append(tuple(pose))

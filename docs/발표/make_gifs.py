@@ -3,11 +3,12 @@
 위에서 내려다본 지도: 로봇이 그 순간까지 그린 점유 격자(기록을 재생해 다시 그린다)
 + 실제 경로(정답) + 로봇 추정 경로 + 보행자 + 빨간 사과 + 카펫 영역(표시용).
 
-쓰는 법:  python docs/발표/make_gifs.py --run-best <채점 실행 폴더> --run-carpet <채점 실행 폴더> [full carpet apple ped retrace]
-          python docs/발표/make_gifs.py --run-best <채점 실행 폴더> best1006 ped1006
+쓰는 법:  python docs/발표/make_gifs.py --run <채점 실행 폴더> [full carpet apple ped retrace]
   실행 폴더 = debug/mission_check.py 가 SAR_OUT 에 남긴 tape.npz·trace.csv·frames.npz 가 있는 곳.
-  발표 GIF 는 9/30 대회 설정 실행 두 개(포기 전 풀기, 바퀴 반지름 보정 전)로 만들었다.
-  best1006·ped1006 은 2026-10-06 대회 조건 실행(detour-hold f117ecb, 2/2, 509.2초)용이다.
+  지금 GIF 는 2026-10-06 대회 조건 실행 하나로 만들었다 — detour-hold 브랜치 f117ecb, 사과 2/2,
+  509.2초 복귀 (Webots 시작 모드 T, 같은 결과가 네 번 나왔다). 사과 카메라 장면만 프레임이 필요해
+  SAR_FRAME_EVERY=8 SAR_FRAME_FROM=368 SAR_FRAME_TO=382 로 한 번 더 돌렸다.
+  9/30 실행으로 만든 예전 GIF 와 그 장면 설정은 커밋 cfe13e1 에 있다.
 
 ⚠️ 보행자 위치는 월드 파일의 Pedestrian 궤적·속도로 **계산** 한다 (pedestrian_clock).
    tape.npz 의 person 은 "첫 번째 움직이는 물체" 인데 apartment 에서는 탁자 위 노트북이었다 —
@@ -226,37 +227,31 @@ def save(frames, name, fps):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="채점 실행 기록으로 발표용 GIF 를 만든다")
     parser.add_argument("which", nargs="*", default=["full", "carpet", "apple", "ped", "retrace"])
-    parser.add_argument("--run-best", required=True, help="전체 주행·사과·보행자·되짚기 장면 실행 폴더")
-    parser.add_argument("--run-carpet", help="카펫 미끄러짐 장면 실행 폴더 (carpet 에만 필요)")
+    parser.add_argument("--run", required=True, help="장면을 뽑을 채점 실행 폴더")
     parser.add_argument("--out", default=OUT, help="GIF 를 쓸 폴더")
     parser.add_argument("--world", default=os.path.join(REPO, "worlds", "apartment_competition_check.wbt"),
                         help="보행자 궤적을 읽을 월드 파일")
     parser.add_argument("--delay", type=float, default=0.0, help="그 실행의 SAR_START_DELAY [s]")
     args = parser.parse_args()
-    which, RUN_BEST, RUN_CARPET, OUT = args.which, args.run_best, args.run_carpet, args.out
-    if "carpet" in which and not RUN_CARPET:
-        parser.error("carpet 에는 --run-carpet 이 필요하다")
+    which, RUN, OUT = args.which, args.run, args.out
     PED, DELAY = pedestrian_clock(args.world), args.delay
     os.makedirs(OUT, exist_ok=True)
     WHOLE = (-13.2, 1.2, -13.8, 0.6)
+    # 장면 시각은 2026-10-06 실행(f117ecb, 509.2초)의 trace.csv 에서 골랐다.
     if "full" in which:
-        topdown(RUN_BEST, 0, 483, 2.0, "gif1_full.gif", WHOLE, "전체 주행", fps=15, trail_from=0, hold=2)
+        topdown(RUN, 0, None, 2.0, "gif1_full.gif", WHOLE, "전체 주행", fps=15, trail_from=0, hold=2)
     if "carpet" in which:
-        topdown(RUN_CARPET, 296, 312, 0.25, "gif2_carpet.gif", (-8.0, -4.4, -4.6, -0.6),
-                "카펫 턱 미끄러짐", show_est=True, fps=10, trail_from=280, hold=1)
+        # 복귀 중 카펫 서쪽 가장자리(x -6.6)를 따라가다 턱에 걸려 미끄러짐 감지 6번 (418~440초)
+        topdown(RUN, 414, 444, 0.25, "gif2_carpet.gif", (-8.4, -5.2, -3.8, -0.6),
+                "카펫 턱 미끄러짐 (복귀 중)", show_est=True, fps=10, trail_from=405, hold=1)
     if "apple" in which:
-        camera(RUN_BEST, 358, 375, "gif3_apple_camera.gif")
+        # 거실 구석 사과: 372초에 처음 보고, 바라보며 확정한 뒤 381.6초에 방문 처리
+        camera(RUN, 368, 382, "gif3_apple_camera.gif")
     if "ped" in which:
-        # ⚠️ 예전 장면(326~345초)에는 진짜 보행자가 없었다 — 노트북을 보행자로 그렸다 (머리말 참고).
-        #    이 실행에서 보행자를 실제로 만난 것은 415~437초다 (최소 0.39 m, 복귀 중).
-        topdown(RUN_BEST, 408, 440, 0.25, "gif4_pedestrian.gif", (-7.0, -3.4, -4.6, -1.0),
-                "보행자와 엇갈림 (복귀 중)", fps=10, trail_from=395, hold=1)
-    if "best1006" in which:
-        topdown(RUN_BEST, 0, None, 2.0, "gif6_full_1006.gif", WHOLE, "전체 주행 (10/6)", fps=15,
-                trail_from=0, hold=2)
-    if "ped1006" in which:
-        topdown(RUN_BEST, 476, 492, 0.25, "gif7_pedestrian_1006.gif", (-6.8, -3.4, -9.0, -6.0),
-                "보행자와 스침 (10/6)", fps=10, trail_from=440, hold=1)
+        # 485초, 복귀 중 뒤쪽 오른편에서 올라온 보행자와 중심 0.24 m 까지 (1.0초)
+        topdown(RUN, 476, 492, 0.25, "gif4_pedestrian.gif", (-6.8, -3.4, -9.0, -6.0),
+                "보행자와 스침 (복귀 중)", fps=10, trail_from=440, hold=1)
     if "retrace" in which:
-        topdown(RUN_BEST, 414, 452, 0.4, "gif5_retrace.gif", (-7.4, -2.9, -6.4, -0.8),
-                "지나온 길 되짚기", fps=10, trail_from=414, faint_from=0, hold=1)
+        # 사과를 다 찾은 서쪽 방에서 집까지 지도 길이 안 나와 지나온 길을 되짚는다 (384.6~413.7초)
+        topdown(RUN, 380, 416, 0.4, "gif5_retrace.gif", (-12.2, -5.8, -4.0, -0.4),
+                "지나온 길 되짚기 (복귀 시작)", fps=10, trail_from=380, faint_from=0, hold=1)
