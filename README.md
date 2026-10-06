@@ -145,6 +145,70 @@ git clone https://github.com/ahnjun0/pnu-techweek26-apple-rescue.git && cd pnu-t
 | 규칙 검사 | `./check_rules.sh` — 주행 코드에 GPS·Supervisor 가 없는지 등 |
 | 재생 비교 | `SAR_RECORD=rec.pkl.gz ./run_headless.sh` 로 녹화하고 `uv run python debug/replay_check.py rec.pkl.gz` |
 
+## 재현하기
+
+GitHub 의 파일만으로 확인했다 — 새로 clone 해 `./setup.sh` 만 거친 detour-hold 가 아래 대회 조건 결과를 그대로
+냈다 (같은 Webots 시작 모드끼리 판단과 상태가 모든 틱에서 같았다). 확인한 환경은 macOS (Apple Silicon) +
+Webots R2025a 하나다. 다른 OS·CPU 에서는 물리 계산이 조금씩 달라 궤적이 바뀔 수 있다.
+
+**1. 대회 조건 한 판** — 헤드리스, 시뮬 900초 제한, 실제로는 10분 안팎
+
+```bash
+git checkout detour-hold      # 발표본 코드는 main
+SAR_FRAME_EVERY=0 SAR_OUT=debug/out/d0 ./run_headless.sh worlds/apartment_competition_check.wbt 3600
+```
+
+- 끝에 요약이 찍히고, `debug/out/d0/` 에 궤적(`trace.csv`)·테이프(`tape.npz`)·지도가 남는다.
+- 마지막 인자 3600 은 벽시계 상한[초]이다. 기본값 600초면 느린 머신에서 중간에 잘릴 수 있다.
+- `SAR_FRAME_EVERY=0` 은 카메라 프레임을 안 남긴다. 남기면 메모리를 1 GB 가까이 쓴다.
+- Webots 는 켤 때마다 몇 가지 시작 모드 중 하나로 뜨고, 모드마다 결과가 틱까지 같다. 그래서 결과가 둘 중 하나로 나온다.
+
+| 브랜치 | 대부분 | 가끔 |
+|---|---|---|
+| detour-hold | 2/2, 509.2초 복귀, 실제 0.34 m | 2/2, 544.3초 복귀, 실제 0.24 m |
+| main (발표본 코드) | 1/2, 489.5초 복귀, 실제 0.23 m | 1/2, 762.0초 복귀, 실제 0.22 m |
+
+9/30 발표본 기록 (2/2, 609.1초) 의 모드는 그 뒤 다시 나오지 않아, 그 기록은
+[`docs/data/2026-09-30_발표본기록/`](docs/data/) 에 둔다.
+
+**2. 출발 시점을 바꿔 보기** — 로봇만 d초 늦게 출발한다. 보행자는 그대로 걸으므로 서로 만나는 시점이 바뀐다.
+
+```bash
+for d in 3 6 9; do
+  SAR_FRAME_EVERY=0 SAR_START_DELAY=$d SAR_OUT=debug/out/d$d ./run_headless.sh worlds/apartment_competition_check.wbt 3600
+done
+```
+
+⚠️ 한 번에 하나씩 돌린다. 여러 개를 동시에 띄우면 메모리가 모자랄 수 있다.
+
+| 출발 지연 | 3초 | 6초 | 9초 |
+|---|---|---|---|
+| main (발표본 코드) | 0/2, 331.6초 복귀 | 0/2, 147.3초 복귀 | 0/2, 127.6초 복귀 |
+| detour-hold | 1/2, 878.1초 복귀 | 2/2, 695.2초 복귀 | 2/2, 867.0초 복귀 |
+
+출발을 늦춰도 Webots 시작 모드에 따라 시간은 갈릴 수 있다 (main 3초는 다른 모드에서 0/2, 850.0초에 복귀 시간 초과).
+
+**3. 카메라 커버리지** — 집의 몇 % 를 언제 카메라로 훑었나 (사과 위치와 상관없는 탐색 지표)
+
+```bash
+uv run python debug/coverage_check.py docs/data/2026-09-30_발표본기록 debug/out/d0
+```
+
+| 실행 | 50% | 70% | 80% | 90% | 사과를 다 찾은 순간 |
+|---|---|---|---|---|---|
+| 9/30 발표본 기록 | 257초 | 384초 | 453초 | 594초 | 519.2초, 89% |
+| detour-hold 대회 조건 (509.2초 모드) | 292초 | 370초 | — | — | 381.6초, 71% |
+
+기준 지도는 [`docs/data/coverage_reference.npz`](docs/data/) 이다 (만든 방법은 `docs/data/README.md`).
+
+**4. GIF 다시 그리기** — 사과 카메라 장면만 프레임이 필요해 그 구간만 남긴다 (509.2초 모드여야 장면 시각이 맞는다)
+
+```bash
+SAR_FRAME_EVERY=8 SAR_FRAME_FROM=368 SAR_FRAME_TO=382 SAR_OUT=debug/out/gif \
+  ./run_headless.sh worlds/apartment_competition_check.wbt 3600
+uv run python docs/발표/make_gifs.py --run debug/out/gif
+```
+
 ## 저장소 구조
 
 ```
@@ -154,7 +218,7 @@ debug/          채점(mission_check, truth), 측정 근거 실험, 재생 비�
 tools/          setup 보조 — 주최 측 자료 받기, 에셋 미러, 채점 월드 만들기
 tests/          pytest (가짜 월드 포함)
 worlds/         측정 실험 월드 (채점 월드는 setup 이 만든다)
-docs/           설명서, 기술 해설, 측정 기록, 발표 자료
+docs/           설명서, 기술 해설, 측정 기록, 발표 자료, 재현용 데이터(docs/data)
 ```
 
 ## 버전
